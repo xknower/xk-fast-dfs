@@ -9,11 +9,15 @@ import (
 //
 func main() {
 
-	// 初始化服务端
-	s := server.NewServer("s", "x")
-
 	// 初始化 HTTP WEB
-	hs := web.NewHttpServer(s)
+	hs := web.NewHttpServer()
+
+	// 初始化服务端
+	s, _ := server.NewService()
+	s.Start()
+
+	// 开始服务
+	hs.Start(s)
 
 	//
 	fmt.Print(hs)

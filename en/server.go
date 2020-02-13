@@ -1,4 +1,4 @@
-package server
+package en
 
 // 服务端定义
 type Server interface {

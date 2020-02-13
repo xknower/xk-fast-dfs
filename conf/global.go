@@ -7,16 +7,6 @@ const (
 	DATA_DIR_NAME   = "data"
 	CONF_DIR_NAME   = "conf"
 	STATIC_DIR_NAME = "static"
-	//
-	CONST_STAT_FILE_COUNT_KEY      = "fileCount"
-	CONST_BIG_UPLOAD_PATH_SUFFIX   = "/big/upload/"
-	CONST_STAT_FILE_TOTAL_SIZE_KEY = "totalSize"
-	CONST_Md5_ERROR_FILE_NAME      = "errors.md5"
-	CONST_Md5_QUEUE_FILE_NAME      = "queue.md5"
-	CONST_FILE_Md5_FILE_NAME       = "files.md5"
-	CONST_REMOME_Md5_FILE_NAME     = "removes.md5"
-	CONST_SMALL_FILE_SIZE          = 1024 * 1024
-	CONST_MESSAGE_CLUSTER_IP       = "Can only be called by the cluster ip or 127.0.0.1 or admin_ips(cfg.json),current ip:%s"
 )
 
 // 项目运行目录
@@ -31,6 +21,9 @@ var (
 	//
 	DirStatic = STATIC_DIR_NAME
 )
+
+// 默认启动队列大小
+var CONSTQueueSize = 10000
 
 // 全局变量配置
 var (

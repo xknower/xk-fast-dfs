@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/sjqzhang/goutil"
-	logger "github.com/sjqzhang/seelog"
+	slog "github.com/sjqzhang/seelog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +14,7 @@ var (
 	//
 	util = &goutil.Common{}
 	// 日志
-	Log logger.LoggerInterface
+	Log slog.LoggerInterface
 	//
 	v = flag.Bool("v", false, "display version")
 )
@@ -26,9 +26,6 @@ var (
 	GO_VERSION  string
 	GIT_VERSION string
 )
-
-// 默认启动队列大小
-var CONSTQueueSize = 10000
 
 //
 func init() {
@@ -95,13 +92,13 @@ func init() {
 	}
 
 	// 初始化日志对象
-	if _logger, err := logger.LoggerFromConfigAsBytes([]byte(LogConfigStr)); err != nil {
+	if _logger, err := slog.LoggerFromConfigAsBytes([]byte(LogConfigStr)); err != nil {
 		panic(err)
 	} else {
-		logger.ReplaceLogger(_logger)
+		slog.ReplaceLogger(_logger)
 	}
 	//
-	if _logger, err := logger.LoggerFromConfigAsBytes([]byte(LogAccessConfigStr)); err == nil {
+	if _logger, err := slog.LoggerFromConfigAsBytes([]byte(LogAccessConfigStr)); err == nil {
 		Log = _logger
 		Log.Info("succes init log access")
 	} else {
