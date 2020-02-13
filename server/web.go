@@ -112,8 +112,8 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if enableDistinctFile {
-			if v, _ := server.GetFileInfoFromLevelDB(fileInfo.Md5); v != nil && v.Md5 != "" {
-				fileResult = server.BuildFileResult(v, r)
+			if v, _ := server.getFileInfoFromLevelDB(fileInfo.Md5); v != nil && v.Md5 != "" {
+				fileResult = server.buildFileResult(v, r)
 				if renameFile {
 					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName)
 				} else {
@@ -155,7 +155,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			slog.Error("file size is zero")
 			return
 		}
-		fileResult = server.BuildFileResult(&fileInfo, r)
+		fileResult = server.buildFileResult(&fileInfo, r)
 		if output == "json" {
 			if data, err = json.Marshal(fileResult); err != nil {
 				slog.Error(err)
@@ -174,8 +174,8 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 				",and if you want to upload file,you must use post method  "))
 			return
 		}
-		if v, _ := server.GetFileInfoFromLevelDB(md5sum); v != nil && v.Md5 != "" {
-			fileResult = server.BuildFileResult(v, r)
+		if v, _ := server.getFileInfoFromLevelDB(md5sum); v != nil && v.Md5 != "" {
+			fileResult = server.buildFileResult(v, r)
 		}
 		if output == "json" {
 			if data, err = json.Marshal(fileResult); err != nil {
@@ -277,57 +277,4 @@ func (server *Service) saveUploadFile(file multipart.File, header *multipart.Fil
 	fileInfo.Peers = append(fileInfo.Peers, server.host)
 	//fmt.Println("upload",fileInfo)
 	return fileInfo, nil
-}
-
-//
-func (server *Service) BuildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileResult {
-	var (
-		outname     string
-		fileResult  en.FileResult
-		p           string
-		downloadUrl string
-		domain      string
-		host        string
-	)
-	host = strings.Replace(host, "http://", "", -1)
-	if r != nil {
-		host = r.Host
-	}
-	if !strings.HasPrefix(downloadDomain, "http") {
-		if downloadDomain == "" {
-			downloadDomain = fmt.Sprintf("http://%s", host)
-		} else {
-			downloadDomain = fmt.Sprintf("http://%s", downloadDomain)
-		}
-	}
-	if downloadDomain != "" {
-		domain = downloadDomain
-	} else {
-		domain = fmt.Sprintf("http://%s", host)
-	}
-	outname = fileInfo.Name
-	if fileInfo.ReName != "" {
-		outname = fileInfo.ReName
-	}
-	p = strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
-	if supportGroupManage {
-		p = group + "/" + p + "/" + outname
-	} else {
-		p = p + "/" + outname
-	}
-	downloadUrl = fmt.Sprintf("http://%s/%s", host, p)
-	if downloadDomain != "" {
-		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, p)
-	}
-	fileResult.Url = downloadUrl
-	fileResult.Md5 = fileInfo.Md5
-	fileResult.Path = "/" + p
-	fileResult.Domain = domain
-	fileResult.Scene = fileInfo.Scene
-	fileResult.Size = fileInfo.Size
-	fileResult.ModTime = fileInfo.TimeStamp
-	// Just for Compatibility
-	fileResult.Src = fileResult.Path
-	fileResult.Scenes = fileInfo.Scene
-	return fileResult
 }

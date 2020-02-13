@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/sjqzhang/googleAuthenticator"
 	slog "github.com/sjqzhang/seelog"
-	"runtime/debug"
 	"strings"
 )
 
@@ -17,34 +16,6 @@ func (server *Service) getRequestURI(action string) string {
 		uri = "/" + action
 	}
 	return uri
-}
-
-//
-func (server *Service) SaveStat() {
-	SaveStatFunc := func() {
-		defer func() {
-			if re := recover(); re != nil {
-				buffer := debug.Stack()
-				slog.Error("SaveStatFunc")
-				slog.Error(re)
-				slog.Error(string(buffer))
-			}
-		}()
-		stat := server.statMap.Get()
-		if v, ok := stat[CONST_STAT_FILE_COUNT_KEY]; ok {
-			switch v.(type) {
-			case int64, int32, int, float64, float32:
-				if v.(int64) >= 0 {
-					if data, err := json.Marshal(stat); err != nil {
-						slog.Error(err)
-					} else {
-						util.WriteBinFile(CONST_STAT_FILE_NAME, data)
-					}
-				}
-			}
-		}
-	}
-	SaveStatFunc()
 }
 
 //

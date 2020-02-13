@@ -129,7 +129,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 			// where not EnableDistinctFile should check
 			if info, err = server.checkPeerFileExist(peer, fileInfo.Md5, ""); info.Md5 != "" {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
-				if _, err = server.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
+				if _, err = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
 					slog.Error(err)
 				}
 				continue
@@ -158,7 +158,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 			slog.Info(result)
 			if !util.Contains(peer, fileInfo.Peers) {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
-				if _, err = server.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
+				if _, err = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
 					slog.Error(err)
 				}
 			}
@@ -237,7 +237,7 @@ func (server *Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		//migrate file
 		if fi, err = os.Stat(fpath); err == nil && fi.Size() == fileInfo.Size {
 			//prevent double download
-			server.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb)
+			server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb)
 			//slog.Info(fmt.Sprintf("file '%s' has download", fpath))
 			return
 		}
@@ -251,7 +251,7 @@ func (server *Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		}
 		if os.Rename(fpathTmp, fpath) == nil {
 			//server.SaveFileMd5Log(fileInfo, CONST_FILE_Md5_FILE_NAME)
-			server.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb)
+			server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb)
 		}
 		return
 	}

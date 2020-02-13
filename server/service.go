@@ -44,7 +44,7 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 		if md == nil {
 			continue
 		}
-		if fileInfo, _ := server.GetFileInfoFromLevelDB(md.(string)); fileInfo != nil && fileInfo.Md5 != "" {
+		if fileInfo, _ := server.getFileInfoFromLevelDB(md.(string)); fileInfo != nil && fileInfo.Md5 != "" {
 			if isForceUpload {
 				fileInfo.Peers = []string{}
 			}
@@ -322,7 +322,7 @@ func (server *Service) watchFilesChange() {
 				if c.Op == watcher.Create.String() {
 					slog.Info(fmt.Sprintf("Syncfile Add to Queue path:%s", fileInfo.Path+"/"+fileInfo.Name))
 					server.AppendToQueue(c)
-					server.SaveFileInfoToLevelDB(c.Md5, c, server.ldb)
+					server.saveFileInfoToLevelDB(c.Md5, c, server.ldb)
 				}
 			}
 		}
@@ -455,7 +455,7 @@ func (server *Service) repairFileInfoFromFile() {
 				slog.Info(filePath, "/", fi.Name())
 				server.AppendToQueue(&fileInfo)
 				//server.postFileToPeer(&fileInfo)
-				server.SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
+				server.saveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
 				//server.SaveFileMd5Log(&fileInfo, CONST_FILE_Md5_FILE_NAME)
 			}
 		}
@@ -564,7 +564,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 							tmpSet = allSet.Difference(remoteSet)
 							for v := range tmpSet.Iter() {
 								if v != nil {
-									if fileInfo, err = server.GetFileInfoFromLevelDB(v.(string)); err != nil {
+									if fileInfo, err = server.getFileInfoFromLevelDB(v.(string)); err != nil {
 										log.Error(err)
 										continue
 									}

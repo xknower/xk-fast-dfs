@@ -49,7 +49,7 @@ func (server *Service) CheckFileExistByInfo(md5s string, fileInfo *en.FileInfo) 
 	}
 	if fileInfo.OffSet >= 0 {
 		//small file
-		if info, err = server.GetFileInfoFromLevelDB(fileInfo.Md5); err == nil && info.Md5 == fileInfo.Md5 {
+		if info, err = server.getFileInfoFromLevelDB(fileInfo.Md5); err == nil && info.Md5 == fileInfo.Md5 {
 			return true
 		} else {
 			return false

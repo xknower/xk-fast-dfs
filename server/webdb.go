@@ -2,7 +2,6 @@ package server
 
 import (
 	"../en"
-	"errors"
 	"fmt"
 	mapset "github.com/deckarep/golang-set"
 	slog "github.com/sjqzhang/seelog"
@@ -32,22 +31,6 @@ func (server *Service) GetMd5sByDate(date string, filename string) (mapset.Set, 
 	}
 	iter.Release()
 	return md5set, nil
-}
-
-// 获取文件信息 -> 检测文件并加载到处理队列 | 自动修复文件并同步集群数据服务
-func (server *Service) GetFileInfoFromLevelDB(key string) (*en.FileInfo, error) {
-	var (
-		err      error
-		data     []byte
-		fileInfo en.FileInfo
-	)
-	if data, err = server.ldb.Get([]byte(key), nil); err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(data, &fileInfo); err != nil {
-		return nil, err
-	}
-	return &fileInfo, nil
 }
 
 // 清理 -> 定期清理及备份数据服务
@@ -240,15 +223,15 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 		if ok, err = server.IsExistFromLevelDB(fileInfo.Md5, server.ldb); !ok {
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_COUNT_KEY, 1)
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_TOTAL_SIZE_KEY, fileInfo.Size)
-			server.SaveStat()
+			server.saveStat()
 		}
-		if _, err = server.SaveFileInfoToLevelDB(logKey, fileInfo, server.logDB); err != nil {
+		if _, err = server.saveFileInfoToLevelDB(logKey, fileInfo, server.logDB); err != nil {
 			slog.Error(err)
 		}
-		if _, err := server.SaveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
+		if _, err := server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
 			slog.Error("saveToLevelDB", err, fileInfo)
 		}
-		if _, err = server.SaveFileInfoToLevelDB(util.MD5(fullpath), fileInfo, server.ldb); err != nil {
+		if _, err = server.saveFileInfoToLevelDB(util.MD5(fullpath), fileInfo, server.ldb); err != nil {
 			slog.Error("saveToLevelDB", err, fileInfo)
 		}
 		return
@@ -258,7 +241,7 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 		if ok, err = server.IsExistFromLevelDB(fileInfo.Md5, server.ldb); ok {
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_COUNT_KEY, -1)
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_TOTAL_SIZE_KEY, -fileInfo.Size)
-			server.SaveStat()
+			server.saveStat()
 		}
 		server.RemoveKeyFromLevelDB(logKey, server.logDB)
 		md5Path = util.MD5(fullpath)
@@ -273,28 +256,5 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 		server.RemoveKeyFromLevelDB(logKey, server.logDB)
 		return
 	}
-	server.SaveFileInfoToLevelDB(logKey, fileInfo, server.logDB)
-}
-
-//
-func (server *Service) SaveFileInfoToLevelDB(key string, fileInfo *en.FileInfo, db *leveldb.DB) (*en.FileInfo, error) {
-	var (
-		err  error
-		data []byte
-	)
-	if fileInfo == nil || db == nil {
-		return nil, errors.New("fileInfo is null or db is null")
-	}
-	if data, err = json.Marshal(fileInfo); err != nil {
-		return fileInfo, err
-	}
-	if err = db.Put([]byte(key), data, nil); err != nil {
-		return fileInfo, err
-	}
-	if db == server.ldb { //search slow ,write fast, double write logDB
-		logDate := util.GetDayFromTimeStamp(fileInfo.TimeStamp)
-		logKey := fmt.Sprintf("%s_%s_%s", logDate, CONST_FILE_Md5_FILE_NAME, fileInfo.Md5)
-		server.logDB.Put([]byte(logKey), data, nil)
-	}
-	return fileInfo, nil
+	server.saveFileInfoToLevelDB(logKey, fileInfo, server.logDB)
 }
