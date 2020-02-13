@@ -1,16 +1,15 @@
 package server
 
 import (
-	"../conf"
 	"net/smtp"
 	"strings"
 )
 
 // 发送邮件
 func (server *Service) sendToMail(to, subject, body, mailType string) error {
-	host := conf.Global().Mail.Host
-	user := conf.Global().Mail.User
-	password := conf.Global().Mail.Password
+	host := mail.Host
+	user := mail.User
+	password := mail.Password
 	hp := strings.Split(host, ":")
 	auth := smtp.PlainAuth("", user, password, hp[0])
 	var contentType string

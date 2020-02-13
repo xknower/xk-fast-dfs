@@ -23,6 +23,7 @@ var json = jsoniter.ConfigCompatibleWithStandardLibrary
 type GlobalConfig struct {
 	Addr                 string       `json:"addr"`
 	Peers                []string     `json:"peers"`
+	Name                 string       `json:"name"`
 	Group                string       `json:"group"`
 	RenameFile           bool         `json:"rename_file"`
 	ShowDir              bool         `json:"show_dir"`

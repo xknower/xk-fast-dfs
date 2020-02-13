@@ -1,7 +1,6 @@
 package server
 
 import (
-	"../conf"
 	"../en"
 	"../web"
 	"bytes"
@@ -31,6 +30,8 @@ import (
 	"time"
 )
 
+const GO_FASTDFS_IP = "GO_FASTDFS_IP"
+
 // JSON 解析
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
@@ -39,20 +40,20 @@ var util = &goutil.Common{}
 
 // 定义服务结构
 type Service struct {
-	ldb            *leveldb.DB
-	logDB          *leveldb.DB
-	statMap        *goutil.CommonMap
-	sumMap         *goutil.CommonMap
-	rtMap          *goutil.CommonMap
-	queueToPeers   chan en.FileInfo
-	queueFromPeers chan en.FileInfo
-	queueFileLog   chan *en.FileLog
-	queueUpload    chan en.WrapReqResp
+	ldb            *leveldb.DB         // 数据日志, 文件信息数据
+	logDB          *leveldb.DB         // 操作日志
+	statMap        *goutil.CommonMap   // 状态信息
+	sumMap         *goutil.CommonMap   //
+	rtMap          *goutil.CommonMap   //
+	queueToPeers   chan en.FileInfo    // 文件信息处理队列, 文件信息保存
+	queueFromPeers chan en.FileInfo    // 文件信息处理队列, 文件信息获取
+	queueFileLog   chan *en.FileLog    // 文件日志处理队列
+	queueUpload    chan en.WrapReqResp // HTTP文件上传处理队列
 	lockMap        *goutil.CommonMap
 	sceneMap       *goutil.CommonMap
 	searchMap      *goutil.CommonMap
 	curDate        string
-	host           string
+	host           string // http://IP:PORT
 	name           string // 服务名称
 	group          string // 分组(路由)名称
 }
@@ -143,30 +144,37 @@ func (server *Service) Start() {
 // isReload 是否为重新加载
 // ---------- ---------- ----------
 func (server *Service) initComponent(isReload bool) {
-	//
+	// -> IP
 	var ip string
-	if ip := os.Getenv("GO_FASTDFS_IP"); ip == "" {
+	if ip := os.Getenv(GO_FASTDFS_IP); ip == "" {
 		ip = util.GetPulicIP()
 	}
-	if conf.Global().Host == "" {
-		if len(strings.Split(conf.Global().Addr, ":")) == 2 {
-			server.host = fmt.Sprintf("http://%s:%s", ip, strings.Split(conf.Global().Addr, ":")[1])
-			conf.Global().Host = server.host
+	// -> HOST
+	if host == "" {
+		if len(strings.Split(addr, ":")) == 2 {
+			server.host = fmt.Sprintf("http://%s:%s", ip, strings.Split(addr, ":")[1])
+			host = server.host
 		}
 	} else {
-		if strings.HasPrefix(conf.Global().Host, "http") {
-			server.host = conf.Global().Host
+		if strings.HasPrefix(host, "http") {
+			server.host = host
 		} else {
-			server.host = "http://" + conf.Global().Host
+			server.host = "http://" + host
 		}
 	}
 
-	//
-	ex, _ := regexp.Compile("\\d+\\.\\d+\\.\\d+\\.\\d+")
-	var peers []string
-	for _, peer := range conf.Global().Peers {
-		if util.Contains(ip, ex.FindAllString(peer, -1)) ||
-			util.Contains("127.0.0.1", ex.FindAllString(peer, -1)) {
+	// -> NAME GROUP
+	if supportGroupManage {
+		server.group = "/" + group
+	}
+	server.name = name
+
+	// -> 节点名
+	rex, _ := regexp.Compile("\\d+\\.\\d+\\.\\d+\\.\\d+")
+	var prs []string
+	for _, peer := range prs {
+		if util.Contains(ip, rex.FindAllString(peer, -1)) ||
+			util.Contains("127.0.0.1", rex.FindAllString(peer, -1)) {
 			continue
 		}
 		if strings.HasPrefix(peer, "http") {
@@ -175,44 +183,46 @@ func (server *Service) initComponent(isReload bool) {
 			peers = append(peers, "http://"+peer)
 		}
 	}
-	conf.Global().Peers = peers
+	peers = prs
 
-	// 判断是否初始化
 	if !isReload {
-		//
+		// -> 第一次加载时, 检测并格式化, stat.json 状态文件
 		server.formatStatInfo()
-		if conf.Global().EnableTus {
+		if enableTus {
+			// -> 第一次加载时, 初始化 Tus
 			server.initTus()
 		}
 	}
 
-	//
-	for _, s := range conf.Global().Scenes {
+	// -> 场景解析
+	for _, s := range scenes {
 		kv := strings.Split(s, ":")
 		if len(kv) == 2 {
 			server.sceneMap.Put(kv[0], kv[1])
 		}
 	}
-	if conf.Global().ReadTimeout == 0 {
-		conf.Global().ReadTimeout = 60 * 10
+
+	// -> 检验并初始化相关参数
+	if readTimeout == 0 {
+		readTimeout = 60 * 10
 	}
-	if conf.Global().WriteTimeout == 0 {
-		conf.Global().WriteTimeout = 60 * 10
+	if writeTimeout == 0 {
+		writeTimeout = 60 * 10
 	}
-	if conf.Global().SyncWorker == 0 {
-		conf.Global().SyncWorker = 200
+	if syncWorker == 0 {
+		syncWorker = 200
 	}
-	if conf.Global().UploadWorker == 0 {
-		conf.Global().UploadWorker = runtime.NumCPU() + 4
+	if uploadWorker == 0 {
+		uploadWorker = runtime.NumCPU() + 4
 		if runtime.NumCPU() < 4 {
-			conf.Global().UploadWorker = 8
+			uploadWorker = 8
 		}
 	}
-	if conf.Global().UploadQueueSize == 0 {
-		conf.Global().UploadQueueSize = 200
+	if uploadQueueSize == 0 {
+		uploadQueueSize = 200
 	}
-	if conf.Global().RetryCount == 0 {
-		conf.Global().RetryCount = 3
+	if retryCount == 0 {
+		retryCount = 3
 	}
 }
 
@@ -220,60 +230,58 @@ func (server *Service) initComponent(isReload bool) {
 // ---------- ---------- ----------
 func (server *Service) startComponent() {
 	go func() {
+		// 开始服务 -> 定时, 自动检测系统状态 (文件和结点状态)
 		for {
-			// 自动检测系统状态 (文件和结点状态)
 			server.checkFileAndSendToPeer(util.GetToDay(), CONST_Md5_ERROR_FILE_NAME, false)
 			//fmt.Println("CheckFileAndSendToPeer")
-			time.Sleep(time.Second * time.Duration(conf.Global().RefreshInterval))
+			time.Sleep(time.Second * time.Duration(refreshInterval))
 			//util.RemoveEmptyDir(STORE_DIR)
 		}
 	}()
 
-	//
+	// 开启服务
 	go server.cleanAndBackUp()
-	//
+	// 开启服务
 	go server.checkClusterStatus()
-	//
+	// 开启服务
 	go server.loadQueueSendToPeer()
-	//
+	// 开启服务
 	go server.consumerPostToPeer()
-	//
+	// 开启服务
 	go server.consumerLog()
-	//
+	// 开启服务
 	go server.consumerDownLoad()
-	//
+	// 开启服务
 	go server.consumerUpload()
-	//
+	// 开启服务
 	go server.removeDownloading()
-	//
-	if conf.Global().EnableFsnotify {
+
+	if enableFsnotify {
+		// 开启服务
 		go server.watchFilesChange()
 	}
+	// 开启服务
 	// go server.loadSearchDict()
-	//
-	if conf.Global().EnableMigrate {
+
+	if enableMigrate {
+		// 开启服务
 		go server.repairFileInfoFromFile()
 	}
-	//
-	if conf.Global().AutoRepair {
+
+	if autoRepair {
 		go func() {
 			for {
 				time.Sleep(time.Minute * 3)
+				// 开启服务
 				//server.autoRepair(false)
 				time.Sleep(time.Minute * 60)
 			}
 		}()
 	}
 
-	group := ""
-	if conf.Global().SupportGroupManage {
-		group = "/" + conf.Global().Group
-	}
-	server.group = group
-	server.name = group
-
-	go func() { // force free memory
+	go func() {
 		for {
+			// 开启服务 -> 定时强制释放内存, force free memory
 			time.Sleep(time.Minute * 1)
 			debug.FreeOSMemory()
 		}
@@ -361,7 +369,7 @@ func (server *Service) initTus() {
 		fileLog *os.File
 		bigDir  string
 	)
-	BIG_DIR := STORE_DIR + "/_big/" + conf.Global().PeerId
+	BIG_DIR := STORE_DIR + "/_big/" + peerId
 	os.MkdirAll(BIG_DIR, 0775)
 	os.MkdirAll(LOG_DIR, 0775)
 	store := filestore.FileStore{
@@ -390,8 +398,8 @@ func (server *Service) initTus() {
 	}()
 	l := log.New(fileLog, "[tusd] ", log.LstdFlags)
 	bigDir = CONST_BIG_UPLOAD_PATH_SUFFIX
-	if conf.Global().SupportGroupManage {
-		bigDir = fmt.Sprintf("/%s%s", conf.Global().Group, CONST_BIG_UPLOAD_PATH_SUFFIX)
+	if supportGroupManage {
+		bigDir = fmt.Sprintf("/%s%s", group, CONST_BIG_UPLOAD_PATH_SUFFIX)
 	}
 	composer := tusd.NewStoreComposer()
 	// support raw tus upload and download
@@ -408,7 +416,7 @@ func (server *Service) initTus() {
 			slog.Error(err)
 			return nil, err
 		} else {
-			if conf.Global().AuthUrl != "" {
+			if authUrl != "" {
 				fileResult := util.JsonEncodePretty(server.BuildFileResult(fi, nil))
 				bufferReader := bytes.NewBuffer([]byte(fileResult))
 				return bufferReader, nil
@@ -467,7 +475,7 @@ func (server *Service) initTus() {
 				slog.Info("CompleteUploads", info)
 				name := ""
 				pathCustom := ""
-				scene := conf.Global().DefaultScene
+				scene := defaultScene
 				if v, ok := info.MetaData["filename"]; ok {
 					name = v
 				}
@@ -481,7 +489,7 @@ func (server *Service) initTus() {
 				md5sum := ""
 				oldFullPath := BIG_DIR + "/" + info.ID + ".bin"
 				infoFullPath := BIG_DIR + "/" + info.ID + ".info"
-				if md5sum, err = util.GetFileSumByName(oldFullPath, conf.Global().FileSumArithmetic); err != nil {
+				if md5sum, err = util.GetFileSumByName(oldFullPath, fileSumArithmetic); err != nil {
 					slog.Error(err)
 					continue
 				}
@@ -490,7 +498,7 @@ func (server *Service) initTus() {
 				if name != "" {
 					filename = name
 				}
-				if conf.Global().RenameFile {
+				if renameFile {
 					filename = md5sum + ext
 				}
 				timeStamp := time.Now().Unix()
@@ -498,7 +506,7 @@ func (server *Service) initTus() {
 				if pathCustom != "" {
 					fpath = "/" + strings.Replace(pathCustom, ".", "", -1) + "/"
 				}
-				newFullPath := STORE_DIR + "/" + scene + fpath + conf.Global().PeerId + "/" + filename
+				newFullPath := STORE_DIR + "/" + scene + fpath + peerId + "/" + filename
 				if pathCustom != "" {
 					newFullPath = STORE_DIR + "/" + scene + fpath + filename
 				}
@@ -518,7 +526,7 @@ func (server *Service) initTus() {
 						continue
 					}
 				}
-				fpath = STORE_DIR_NAME + "/" + conf.Global().DefaultScene + fpath + conf.Global().PeerId
+				fpath = STORE_DIR_NAME + "/" + defaultScene + fpath + peerId
 				os.MkdirAll(DOCKER_DIR+fpath, 0775)
 				fileInfo := &en.FileInfo{
 					Name:      name,

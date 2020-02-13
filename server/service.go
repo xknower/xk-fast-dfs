@@ -1,12 +1,13 @@
 package server
 
 import (
-	"../conf"
 	"../en"
 	"../web"
+	"bufio"
 	"fmt"
 	"github.com/astaxie/beego/httplib"
 	mapset "github.com/deckarep/golang-set"
+	"github.com/opentracing/opentracing-go/log"
 	"github.com/radovskyb/watcher"
 	slog "github.com/sjqzhang/seelog"
 	dbutil "github.com/syndtr/goleveldb/leveldb/util"
@@ -47,7 +48,7 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 			if isForceUpload {
 				fileInfo.Peers = []string{}
 			}
-			if len(fileInfo.Peers) > len(conf.Global().Peers) {
+			if len(fileInfo.Peers) > len(peers) {
 				continue
 			}
 			if !util.Contains(server.host, fileInfo.Peers) {
@@ -62,7 +63,7 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 	}
 }
 
-//
+// 服务
 func (server *Service) cleanAndBackUp() {
 	Clean := func() {
 		var (
@@ -87,7 +88,7 @@ func (server *Service) cleanAndBackUp() {
 	}()
 }
 
-//
+// 服务
 func (server *Service) checkClusterStatus() {
 	check := func() {
 		defer func() {
@@ -105,12 +106,12 @@ func (server *Service) checkClusterStatus() {
 			body    string
 			req     *httplib.BeegoHTTPRequest
 		)
-		for _, peer := range conf.Global().Peers {
+		for _, peer := range peers {
 			req = httplib.Get(fmt.Sprintf("%s%s", peer, server.getRequestURI("status")))
 			req.SetTimeout(time.Second*5, time.Second*5)
 			err = req.ToJSON(&status)
 			if err != nil || status.Status != "ok" {
-				for _, to := range conf.Global().AlarmReceivers {
+				for _, to := range alarmReceivers {
 					subject = "fastdfs server error"
 					if err != nil {
 						body = fmt.Sprintf("%s\nserver:%s\nerror:\n%s", subject, peer, err.Error())
@@ -121,8 +122,8 @@ func (server *Service) checkClusterStatus() {
 						slog.Error(err)
 					}
 				}
-				if conf.Global().AlarmUrl != "" {
-					req = httplib.Post(conf.Global().AlarmUrl)
+				if alarmUrl != "" {
+					req = httplib.Post(alarmUrl)
 					req.SetTimeout(time.Second*10, time.Second*10)
 					req.Param("message", body)
 					req.Param("subject", subject)
@@ -141,6 +142,7 @@ func (server *Service) checkClusterStatus() {
 	}()
 }
 
+// 服务
 func (server *Service) loadQueueSendToPeer() {
 	if queue, err := server.loadFileInfoByDate(util.GetToDay(), CONST_Md5_QUEUE_FILE_NAME); err != nil {
 		slog.Error(err)
@@ -152,7 +154,7 @@ func (server *Service) loadQueueSendToPeer() {
 	}
 }
 
-//
+// 服务
 func (server *Service) consumerPostToPeer() {
 	ConsumerFunc := func() {
 		for {
@@ -160,12 +162,12 @@ func (server *Service) consumerPostToPeer() {
 			server.postFileToPeer(&fileInfo)
 		}
 	}
-	for i := 0; i < conf.Global().SyncWorker; i++ {
+	for i := 0; i < syncWorker; i++ {
 		go ConsumerFunc()
 	}
 }
 
-//
+// 服务
 func (server *Service) consumerLog() {
 	go func() {
 		var fileLog *en.FileLog
@@ -176,7 +178,7 @@ func (server *Service) consumerLog() {
 	}()
 }
 
-//
+// 服务
 func (server *Service) consumerDownLoad() {
 	ConsumerFunc := func() {
 		for {
@@ -197,12 +199,12 @@ func (server *Service) consumerDownLoad() {
 			}
 		}
 	}
-	for i := 0; i < conf.Global().SyncWorker; i++ {
+	for i := 0; i < syncWorker; i++ {
 		go ConsumerFunc()
 	}
 }
 
-//
+// 服务
 func (server *Service) consumerUpload() {
 	ConsumerFunc := func() {
 		for {
@@ -219,12 +221,12 @@ func (server *Service) consumerUpload() {
 			wr.Done <- true
 		}
 	}
-	for i := 0; i < conf.Global().UploadWorker; i++ {
+	for i := 0; i < uploadWorker; i++ {
 		go ConsumerFunc()
 	}
 }
 
-//
+// 服务
 func (server *Service) removeDownloading() {
 	RemoveDownloadFunc := func() {
 		for {
@@ -245,7 +247,7 @@ func (server *Service) removeDownloading() {
 	go RemoveDownloadFunc()
 }
 
-//
+// 服务
 func (server *Service) watchFilesChange() {
 	var (
 		w        *watcher.Watcher
@@ -342,7 +344,126 @@ func (server *Service) watchFilesChange() {
 	}
 }
 
+// 服务
+func (server *Service) loadSearchDict() {
+	go func() {
+		slog.Info("Load search dict ....")
+		f, err := os.Open(CONST_SEARCH_FILE_NAME)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		defer f.Close()
+		r := bufio.NewReader(f)
+		for {
+			line, isprefix, err := r.ReadLine()
+			for isprefix && err == nil {
+				kvs := strings.Split(string(line), "\t")
+				if len(kvs) == 2 {
+					server.searchMap.Put(kvs[0], kvs[1])
+				}
+			}
+		}
+		slog.Info("finish load search dict")
+	}()
+}
+
 //
+func (server *Service) autoRepair(forceRepair bool) {
+	if server.lockMap.IsLock("AutoRepair") {
+		slog.Warn("Lock AutoRepair")
+		return
+	}
+	server.lockMap.LockKey("AutoRepair")
+	defer server.lockMap.UnLockKey("AutoRepair")
+	AutoRepairFunc := func(forceRepair bool) {
+		var (
+			dateStats []en.StatDateFileInfo
+			err       error
+			countKey  string
+			md5s      string
+			localSet  mapset.Set
+			remoteSet mapset.Set
+			allSet    mapset.Set
+			tmpSet    mapset.Set
+			fileInfo  *en.FileInfo
+		)
+		defer func() {
+			if re := recover(); re != nil {
+				buffer := debug.Stack()
+				slog.Error("AutoRepair")
+				slog.Error(re)
+				slog.Error(string(buffer))
+			}
+		}()
+		Update := func(peer string, dateStat en.StatDateFileInfo) {
+			//从远端拉数据过来
+			req := httplib.Get(fmt.Sprintf("%s%s?date=%s&force=%s", peer, server.getRequestURI("sync"), dateStat.Date, "1"))
+			req.SetTimeout(time.Second*5, time.Second*5)
+			if _, err = req.String(); err != nil {
+				log.Error(err)
+			}
+			slog.Info(fmt.Sprintf("syn file from %s date %s", peer, dateStat.Date))
+		}
+		for _, peer := range peers {
+			req := httplib.Post(fmt.Sprintf("%s%s", peer, server.getRequestURI("stat")))
+			req.Param("inner", "1")
+			req.SetTimeout(time.Second*5, time.Second*15)
+			if err = req.ToJSON(&dateStats); err != nil {
+				log.Error(err)
+				continue
+			}
+			for _, dateStat := range dateStats {
+				if dateStat.Date == "all" {
+					continue
+				}
+				countKey = dateStat.Date + "_" + CONST_STAT_FILE_COUNT_KEY
+				if v, ok := server.statMap.GetValue(countKey); ok {
+					switch v.(type) {
+					case int64:
+						if v.(int64) != dateStat.FileCount || forceRepair {
+							//不相等,找差异
+							//TODO
+							req := httplib.Post(fmt.Sprintf("%s%s", peer, server.getRequestURI("get_md5s_by_date")))
+							req.SetTimeout(time.Second*15, time.Second*60)
+							req.Param("date", dateStat.Date)
+							if md5s, err = req.String(); err != nil {
+								continue
+							}
+							if localSet, err = server.GetMd5sByDate(dateStat.Date, CONST_FILE_Md5_FILE_NAME); err != nil {
+								log.Error(err)
+								continue
+							}
+							remoteSet = util.StrToMapSet(md5s, ",")
+							allSet = localSet.Union(remoteSet)
+							md5s = util.MapSetToStr(allSet.Difference(localSet), ",")
+							req = httplib.Post(fmt.Sprintf("%s%s", peer, server.getRequestURI("receive_md5s")))
+							req.SetTimeout(time.Second*15, time.Second*60)
+							req.Param("md5s", md5s)
+							req.String()
+							tmpSet = allSet.Difference(remoteSet)
+							for v := range tmpSet.Iter() {
+								if v != nil {
+									if fileInfo, err = server.GetFileInfoFromLevelDB(v.(string)); err != nil {
+										log.Error(err)
+										continue
+									}
+									server.AppendToQueue(fileInfo)
+								}
+							}
+							//Update(peer,dateStat)
+						}
+					}
+				} else {
+					Update(peer, dateStat)
+				}
+			}
+		}
+	}
+	AutoRepairFunc(forceRepair)
+}
+
+// 服务
 func (server *Service) repairFileInfoFromFile() {
 	var (
 		pathPrefix string

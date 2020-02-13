@@ -1,7 +1,6 @@
 package server
 
 import (
-	"../conf"
 	"../en"
 	"../web"
 	"errors"
@@ -36,14 +35,14 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		secret       interface{}
 	)
 	output = r.FormValue("output")
-	if conf.Global().EnableCrossOrigin {
+	if enableCrossOrigin {
 		web.CrossOrigin(w, r)
 		if r.Method == http.MethodOptions {
 			return
 		}
 	}
 
-	if conf.Global().AuthUrl != "" {
+	if authUrl != "" {
 		if !server.CheckAuth(w, r) {
 			slog.Warn("auth fail", r.Form)
 			server.NotPermit(w, r)
@@ -55,11 +54,11 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		md5sum = r.FormValue("md5")
 		fileName = r.FormValue("filename")
 		output = r.FormValue("output")
-		if conf.Global().ReadOnly {
+		if readOnly {
 			w.Write([]byte("(error) readonly"))
 			return
 		}
-		if conf.Global().EnableCustomPath {
+		if enableCustomPath {
 			fileInfo.Path = r.FormValue("path")
 			fileInfo.Path = strings.Trim(fileInfo.Path, "/")
 		}
@@ -69,9 +68,9 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			//Just for Compatibility
 			scene = r.FormValue("scenes")
 		}
-		if conf.Global().EnableGoogleAuth && scene != "" {
+		if enableGoogleAuth && scene != "" {
 			if secret, ok = server.sceneMap.GetValue(scene); ok {
-				if !server.VerifyGoogleCode(secret.(string), code, int64(conf.Global().DownloadTokenExpire/30)) {
+				if !server.VerifyGoogleCode(secret.(string), code, int64(downloadTokenExpire/30)) {
 					server.NotPermit(w, r)
 					w.Write([]byte("invalid request,error google code"))
 					return
@@ -89,7 +88,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		fileInfo.Peers = []string{}
 		fileInfo.TimeStamp = time.Now().Unix()
 		if scene == "" {
-			scene = conf.Global().DefaultScene
+			scene = defaultScene
 		}
 		if output == "" {
 			output = "text"
@@ -112,10 +111,10 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		if conf.Global().EnableDistinctFile {
+		if enableDistinctFile {
 			if v, _ := server.GetFileInfoFromLevelDB(fileInfo.Md5); v != nil && v.Md5 != "" {
 				fileResult = server.BuildFileResult(v, r)
-				if conf.Global().RenameFile {
+				if renameFile {
 					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName)
 				} else {
 					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name)
@@ -140,11 +139,11 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			slog.Warn(" fileInfo.Md5 and md5sum !=")
 			return
 		}
-		if !conf.Global().EnableDistinctFile {
+		if !enableDistinctFile {
 			// bugfix filecount stat
 			fileInfo.Md5 = util.MD5(server.GetFilePathByInfo(&fileInfo, false))
 		}
-		if conf.Global().EnableMergeSmallFile && fileInfo.Size < CONST_SMALL_FILE_SIZE {
+		if enableMergeSmallFile && fileInfo.Size < CONST_SMALL_FILE_SIZE {
 			if err = server.saveSmallFile(&fileInfo); err != nil {
 				slog.Error(err)
 				return
@@ -206,16 +205,16 @@ func (server *Service) saveUploadFile(file multipart.File, header *multipart.Fil
 	defer file.Close()
 	_, fileInfo.Name = filepath.Split(header.Filename)
 	// bugfix for ie upload file contain fullpath
-	if len(conf.Global().Extensions) > 0 && !util.Contains(path.Ext(fileInfo.Name), conf.Global().Extensions) {
+	if len(extensions) > 0 && !util.Contains(path.Ext(fileInfo.Name), extensions) {
 		return fileInfo, errors.New("(error)file extension mismatch")
 	}
 
-	if conf.Global().RenameFile {
+	if renameFile {
 		fileInfo.ReName = util.MD5(util.GetUUID()) + path.Ext(fileInfo.Name)
 	}
 	folder = time.Now().Format("20060102/15/04")
-	if conf.Global().PeerId != "" {
-		folder = fmt.Sprintf(folder+"/%s", conf.Global().PeerId)
+	if peerId != "" {
+		folder = fmt.Sprintf(folder+"/%s", peerId)
 	}
 	if fileInfo.Scene != "" {
 		folder = fmt.Sprintf(STORE_DIR+"/%s/%s", fileInfo.Scene, folder)
@@ -236,7 +235,7 @@ func (server *Service) saveUploadFile(file multipart.File, header *multipart.Fil
 	if fileInfo.ReName != "" {
 		outPath = fmt.Sprintf(folder+"/%s", fileInfo.ReName)
 	}
-	if util.FileExists(outPath) && conf.Global().EnableDistinctFile {
+	if util.FileExists(outPath) && enableDistinctFile {
 		for i := 0; i < 10000; i++ {
 			outPath = fmt.Sprintf(folder+"/%d_%s", i, filepath.Base(header.Filename))
 			fileInfo.Name = fmt.Sprintf("%d_%s", i, header.Filename)
@@ -267,8 +266,8 @@ func (server *Service) saveUploadFile(file multipart.File, header *multipart.Fil
 		return fileInfo, errors.New("(error)file uncomplete")
 	}
 	v := "" // util.GetFileSum(outFile, Config().FileSumArithmetic)
-	if conf.Global().EnableDistinctFile {
-		v = util.GetFileSum(outFile, conf.Global().FileSumArithmetic)
+	if enableDistinctFile {
+		v = util.GetFileSum(outFile, fileSumArithmetic)
 	} else {
 		v = util.MD5(server.GetFilePathByInfo(fileInfo, false))
 	}
@@ -290,19 +289,19 @@ func (server *Service) BuildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 		domain      string
 		host        string
 	)
-	host = strings.Replace(conf.Global().Host, "http://", "", -1)
+	host = strings.Replace(host, "http://", "", -1)
 	if r != nil {
 		host = r.Host
 	}
-	if !strings.HasPrefix(conf.Global().DownloadDomain, "http") {
-		if conf.Global().DownloadDomain == "" {
-			conf.Global().DownloadDomain = fmt.Sprintf("http://%s", host)
+	if !strings.HasPrefix(downloadDomain, "http") {
+		if downloadDomain == "" {
+			downloadDomain = fmt.Sprintf("http://%s", host)
 		} else {
-			conf.Global().DownloadDomain = fmt.Sprintf("http://%s", conf.Global().DownloadDomain)
+			downloadDomain = fmt.Sprintf("http://%s", downloadDomain)
 		}
 	}
-	if conf.Global().DownloadDomain != "" {
-		domain = conf.Global().DownloadDomain
+	if downloadDomain != "" {
+		domain = downloadDomain
 	} else {
 		domain = fmt.Sprintf("http://%s", host)
 	}
@@ -311,14 +310,14 @@ func (server *Service) BuildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 		outname = fileInfo.ReName
 	}
 	p = strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
-	if conf.Global().SupportGroupManage {
-		p = conf.Global().Group + "/" + p + "/" + outname
+	if supportGroupManage {
+		p = group + "/" + p + "/" + outname
 	} else {
 		p = p + "/" + outname
 	}
 	downloadUrl = fmt.Sprintf("http://%s/%s", host, p)
-	if conf.Global().DownloadDomain != "" {
-		downloadUrl = fmt.Sprintf("%s/%s", conf.Global().DownloadDomain, p)
+	if downloadDomain != "" {
+		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, p)
 	}
 	fileResult.Url = downloadUrl
 	fileResult.Md5 = fileInfo.Md5

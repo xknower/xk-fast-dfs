@@ -1,7 +1,6 @@
 package server
 
 import (
-	"../conf"
 	"../en"
 	"fmt"
 	"io"
@@ -101,7 +100,7 @@ func (server *Service) saveSmallFile(fileInfo *en.FileInfo) error {
 		filename = fileInfo.ReName
 	}
 	fpath = DOCKER_DIR + fileInfo.Path + "/" + filename
-	largeDir = LARGE_DIR + "/" + conf.Global().PeerId
+	largeDir = LARGE_DIR + "/" + peerId
 	if !util.FileExists(largeDir) {
 		os.MkdirAll(largeDir, 0775)
 	}

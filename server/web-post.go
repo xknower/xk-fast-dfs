@@ -1,7 +1,6 @@
 package server
 
 import (
-	"../conf"
 	"../en"
 	"../web"
 	"errors"
@@ -27,7 +26,7 @@ func (server *Service) CheckAuth(w http.ResponseWriter, r *http.Request) bool {
 		slog.Error(err)
 		return false
 	}
-	req = httplib.Post(conf.Global().AuthUrl)
+	req = httplib.Post(authUrl)
 	req.SetTimeout(time.Second*10, time.Second*10)
 	req.Param("__path__", r.URL.Path)
 	req.Param("__query__", r.URL.RawQuery)
@@ -97,7 +96,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 		}
 	}()
 	//fmt.Println("postFile",fileInfo)
-	for i, peer = range conf.Global().Peers {
+	for i, peer = range peers {
 		_ = i
 		if fileInfo.Peers == nil {
 			fileInfo.Peers = []string{}
@@ -125,7 +124,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 				}
 			}
 		}
-		if fileInfo.OffSet != -2 && conf.Global().EnableDistinctFile {
+		if fileInfo.OffSet != -2 && enableDistinctFile {
 			//not migrate file should check or update file
 			// where not EnableDistinctFile should check
 			if info, err = server.checkPeerFileExist(peer, fileInfo.Md5, ""); info.Md5 != "" {
@@ -146,7 +145,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 		b.Param("fileInfo", string(data))
 		result, err = b.String()
 		if err != nil {
-			if fileInfo.Retry <= conf.Global().RetryCount {
+			if fileInfo.Retry <= retryCount {
 				fileInfo.Retry = fileInfo.Retry + 1
 				server.AppendToQueue(fileInfo)
 			}
@@ -182,11 +181,11 @@ func (server *Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		data        []byte
 		downloadUrl string
 	)
-	if conf.Global().ReadOnly {
+	if readOnly {
 		slog.Warn("ReadOnly", fileInfo)
 		return
 	}
-	if conf.Global().RetryCount > 0 && fileInfo.Retry >= conf.Global().RetryCount {
+	if retryCount > 0 && fileInfo.Retry >= retryCount {
 		slog.Error("DownloadFromPeer Error ", fileInfo)
 		return
 	} else {
@@ -196,12 +195,12 @@ func (server *Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	if fileInfo.ReName != "" {
 		filename = fileInfo.ReName
 	}
-	if fileInfo.OffSet != -2 && conf.Global().EnableDistinctFile && server.CheckFileExistByInfo(fileInfo.Md5, fileInfo) {
+	if fileInfo.OffSet != -2 && enableDistinctFile && server.CheckFileExistByInfo(fileInfo.Md5, fileInfo) {
 		// ignore migrate file
 		slog.Info(fmt.Sprintf("DownloadFromPeer file Exist, path:%s", fileInfo.Path+"/"+fileInfo.Name))
 		return
 	}
-	if (!conf.Global().EnableDistinctFile || fileInfo.OffSet == -2) && util.FileExists(server.GetFilePathByInfo(fileInfo, true)) {
+	if (!enableDistinctFile || fileInfo.OffSet == -2) && util.FileExists(server.GetFilePathByInfo(fileInfo, true)) {
 		// ignore migrate file
 		if fi, err = os.Stat(server.GetFilePathByInfo(fileInfo, true)); err == nil {
 			if fi.ModTime().Unix() > fileInfo.TimeStamp {
@@ -219,13 +218,13 @@ func (server *Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	//fmt.Println("downloadFromPeer",fileInfo)
 	p := strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
 	//filename= util.UrlEncode(filename)
-	downloadUrl = peer + "/" + conf.Global().Group + "/" + p + "/" + filename
+	downloadUrl = peer + "/" + group + "/" + p + "/" + filename
 	slog.Info("DownloadFromPeer: ", downloadUrl)
 	fpath = DOCKER_DIR + fileInfo.Path + "/" + filename
 	fpathTmp = DOCKER_DIR + fileInfo.Path + "/" + fmt.Sprintf("%s_%s", "tmp_", filename)
 	timeout := fileInfo.Size/1024/1024/1 + 30
-	if conf.Global().SyncTimeout > 0 {
-		timeout = conf.Global().SyncTimeout
+	if syncTimeout > 0 {
+		timeout = syncTimeout
 	}
 	server.lockMap.LockKey(fpath)
 	defer server.lockMap.UnLockKey(fpath)

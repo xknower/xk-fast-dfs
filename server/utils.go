@@ -1,7 +1,6 @@
 package server
 
 import (
-	"../conf"
 	"errors"
 	"github.com/sjqzhang/googleAuthenticator"
 	slog "github.com/sjqzhang/seelog"
@@ -12,8 +11,8 @@ import (
 //
 func (server *Service) getRequestURI(action string) string {
 	var uri string
-	if conf.Global().SupportGroupManage {
-		uri = "/" + conf.Global().Group + "/" + action
+	if supportGroupManage {
+		uri = "/" + group + "/" + action
 	} else {
 		uri = "/" + action
 	}
@@ -67,10 +66,10 @@ func (server *Service) checkScene(scene string) (bool, error) {
 	var (
 		scenes []string
 	)
-	if len(conf.Global().Scenes) == 0 {
+	if len(scenes) == 0 {
 		return true, nil
 	}
-	for _, s := range conf.Global().Scenes {
+	for _, s := range scenes {
 		scenes = append(scenes, strings.Split(s, ":")[0])
 	}
 	if !util.Contains(scene, scenes) {
