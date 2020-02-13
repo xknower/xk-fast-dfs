@@ -44,14 +44,14 @@ type Service struct {
 	logDB          *leveldb.DB         // 操作日志
 	statMap        *goutil.CommonMap   // 状态信息
 	sumMap         *goutil.CommonMap   //
-	rtMap          *goutil.CommonMap   //
+	rtMap          *goutil.CommonMap   // 上传文件 (读写锁)
 	queueToPeers   chan en.FileInfo    // 文件信息处理队列, 文件信息保存
 	queueFromPeers chan en.FileInfo    // 文件信息处理队列, 文件信息获取
 	queueFileLog   chan *en.FileLog    // 文件日志处理队列
 	queueUpload    chan en.WrapReqResp // HTTP文件上传处理队列
-	lockMap        *goutil.CommonMap
-	sceneMap       *goutil.CommonMap
-	searchMap      *goutil.CommonMap
+	lockMap        *goutil.CommonMap   // 读写锁
+	sceneMap       *goutil.CommonMap   //
+	searchMap      *goutil.CommonMap   // 加载搜索字典 (读写锁)
 	curDate        string
 	host           string // http://IP:PORT
 	name           string // 服务名称
@@ -230,7 +230,7 @@ func (server *Service) initComponent(isReload bool) {
 // ---------- ---------- ----------
 func (server *Service) startComponent() {
 	go func() {
-		// 开始服务 -> 定时, 自动检测系统状态 (文件和结点状态)
+		// 00 开始服务 -> 检测文件并加载到处理队列 (定时, 自动检测系统状态 (文件和结点状态))
 		for {
 			server.checkFileAndSendToPeer(util.GetToDay(), CONST_Md5_ERROR_FILE_NAME, false)
 			//fmt.Println("CheckFileAndSendToPeer")
@@ -239,32 +239,33 @@ func (server *Service) startComponent() {
 		}
 	}()
 
-	// 开启服务
+	// 01 开启服务 -> 定期清理及备份数据服务
 	go server.cleanAndBackUp()
-	// 开启服务
+	// 02 开启服务 -> 检测集群状态服务
 	go server.checkClusterStatus()
-	// 开启服务
+	// 03 开启服务
 	go server.loadQueueSendToPeer()
-	// 开启服务
+	// 04 开启服务
 	go server.consumerPostToPeer()
-	// 开启服务
+	// 05 开启服务 -> 处理日志队列服务
 	go server.consumerLog()
-	// 开启服务
+	// 06 开启服务 -> 处理文件下载队列服务
 	go server.consumerDownLoad()
-	// 开启服务
+	// 07 开启服务 -> 处理文件上传队列服务
 	go server.consumerUpload()
-	// 开启服务
+	// 08 开启服务 -> 清除过期(下载)文件服务
 	go server.removeDownloading()
 
+	// 支持按组(集群)管理
 	if enableFsnotify {
-		// 开启服务
+		// 09 开启服务 -> 监控文件变更服务
 		go server.watchFilesChange()
 	}
-	// 开启服务
-	// go server.loadSearchDict()
+	// 10 开启服务 ->
+	go server.loadSearchDict()
 
 	if enableMigrate {
-		// 开启服务
+		// 11 开启服务 -> 数据迁移服务
 		go server.repairFileInfoFromFile()
 	}
 
@@ -272,8 +273,8 @@ func (server *Service) startComponent() {
 		go func() {
 			for {
 				time.Sleep(time.Minute * 3)
-				// 开启服务
-				//server.autoRepair(false)
+				// 12 开启服务 -> 数据修复更新服务
+				server.autoRepair(false)
 				time.Sleep(time.Minute * 60)
 			}
 		}()
@@ -281,7 +282,7 @@ func (server *Service) startComponent() {
 
 	go func() {
 		for {
-			// 开启服务 -> 定时强制释放内存, force free memory
+			// 13 开启服务 -> 定时强制释放内存, force free memory
 			time.Sleep(time.Minute * 1)
 			debug.FreeOSMemory()
 		}
@@ -361,7 +362,6 @@ func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
 	return stat
 }
 
-//
 // 初始化 Tus
 func (server *Service) initTus() {
 	var (

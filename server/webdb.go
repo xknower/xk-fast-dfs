@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-//
+// 检测文件并加载到处理队列 -> 获取MD5文件中保存的文件信息 | 自动修复文件并同步集群数据服务
 func (server *Service) GetMd5sByDate(date string, filename string) (mapset.Set, error) {
 	var (
 		keyPrefix string
@@ -34,7 +34,7 @@ func (server *Service) GetMd5sByDate(date string, filename string) (mapset.Set, 
 	return md5set, nil
 }
 
-//
+// 获取文件信息 -> 检测文件并加载到处理队列 | 自动修复文件并同步集群数据服务
 func (server *Service) GetFileInfoFromLevelDB(key string) (*en.FileInfo, error) {
 	var (
 		err      error
@@ -50,7 +50,7 @@ func (server *Service) GetFileInfoFromLevelDB(key string) (*en.FileInfo, error) 
 	return &fileInfo, nil
 }
 
-//
+// 清理 -> 定期清理及备份数据服务
 func (server *Service) cleanLogLevelDBByDate(date string, filename string) {
 	defer func() {
 		if re := recover(); re != nil {
@@ -86,7 +86,7 @@ func (server *Service) RemoveKeyFromLevelDB(key string, db *leveldb.DB) error {
 	return db.Delete([]byte(key), nil)
 }
 
-//
+// 备份 -> 定期清理及备份数据服务
 func (server *Service) BackUpMetaDataByDate(date string) {
 	defer func() {
 		if re := recover(); re != nil {
@@ -205,7 +205,7 @@ func (server *Service) IsExistFromLevelDB(key string, db *leveldb.DB) (bool, err
 	return db.Has([]byte(key), nil)
 }
 
-//
+// 保存操作文件信息日志 -> 处理日志队列服务
 func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 	var (
 		err      error

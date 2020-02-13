@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-//
+// 处理文件上传队列服务 -> 上传文件
 func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 	var (
 		err error

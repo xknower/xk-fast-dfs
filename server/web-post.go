@@ -169,7 +169,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 	}
 }
 
-//
+// 文件下载 -> 处理文件下载队列服务
 func (server *Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	var (
 		err         error

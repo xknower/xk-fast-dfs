@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-//
+// 00 服务 -> 检测文件并加载到处理队列
 func (server *Service) checkFileAndSendToPeer(date string, filename string, isForceUpload bool) {
 	var (
 		md5set mapset.Set
@@ -63,7 +63,7 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 	}
 }
 
-// 服务
+// 01 服务 -> 定期清理及备份数据服务
 func (server *Service) cleanAndBackUp() {
 	Clean := func() {
 		var (
@@ -88,9 +88,10 @@ func (server *Service) cleanAndBackUp() {
 	}()
 }
 
-// 服务
+// 02 服务 -> 检测集群状态服务
 func (server *Service) checkClusterStatus() {
-	check := func() {
+	// 定义功能
+	CheckFunc := func() {
 		defer func() {
 			if re := recover(); re != nil {
 				buffer := debug.Stack()
@@ -137,12 +138,12 @@ func (server *Service) checkClusterStatus() {
 	go func() {
 		for {
 			time.Sleep(time.Minute * 10)
-			check()
+			CheckFunc()
 		}
 	}()
 }
 
-// 服务
+// 03 服务
 func (server *Service) loadQueueSendToPeer() {
 	if queue, err := server.loadFileInfoByDate(util.GetToDay(), CONST_Md5_QUEUE_FILE_NAME); err != nil {
 		slog.Error(err)
@@ -154,7 +155,7 @@ func (server *Service) loadQueueSendToPeer() {
 	}
 }
 
-// 服务
+// 04 服务
 func (server *Service) consumerPostToPeer() {
 	ConsumerFunc := func() {
 		for {
@@ -167,7 +168,7 @@ func (server *Service) consumerPostToPeer() {
 	}
 }
 
-// 服务
+// 05 服务 -> 处理日志队列服务
 func (server *Service) consumerLog() {
 	go func() {
 		var fileLog *en.FileLog
@@ -178,8 +179,9 @@ func (server *Service) consumerLog() {
 	}()
 }
 
-// 服务
+// 06 服务 -> 处理文件下载队列服务
 func (server *Service) consumerDownLoad() {
+	// 定义功能
 	ConsumerFunc := func() {
 		for {
 			fileInfo := <-server.queueFromPeers
@@ -204,8 +206,9 @@ func (server *Service) consumerDownLoad() {
 	}
 }
 
-// 服务
+// 07 服务 -> 处理文件上传队列服务
 func (server *Service) consumerUpload() {
+	// 定义功能
 	ConsumerFunc := func() {
 		for {
 			wr := <-server.queueUpload
@@ -226,8 +229,9 @@ func (server *Service) consumerUpload() {
 	}
 }
 
-// 服务
+// 08 服务 -> 删除下载的文件(超出保存时长)服务
 func (server *Service) removeDownloading() {
+	// 定义功能
 	RemoveDownloadFunc := func() {
 		for {
 			iter := server.ldb.NewIterator(dbutil.BytesPrefix([]byte("downloading_")), nil)
@@ -247,7 +251,7 @@ func (server *Service) removeDownloading() {
 	go RemoveDownloadFunc()
 }
 
-// 服务
+// 09 服务 -> 监控文件变更服务
 func (server *Service) watchFilesChange() {
 	var (
 		w        *watcher.Watcher
@@ -257,6 +261,7 @@ func (server *Service) watchFilesChange() {
 		qchan    chan *en.FileInfo
 		isLink   bool
 	)
+
 	qchan = make(chan *en.FileInfo, 10000)
 	w = watcher.New()
 	w.FilterOps(watcher.Create)
@@ -299,6 +304,7 @@ func (server *Service) watchFilesChange() {
 			}
 		}
 	}()
+
 	go func() {
 		for {
 			c := <-qchan
@@ -321,8 +327,8 @@ func (server *Service) watchFilesChange() {
 			}
 		}
 	}()
-	if dir, err := os.Readlink(STORE_DIR_NAME); err == nil {
 
+	if dir, err := os.Readlink(STORE_DIR_NAME); err == nil {
 		if strings.HasSuffix(dir, string(os.PathSeparator)) {
 			dir = strings.TrimSuffix(dir, string(os.PathSeparator))
 		}
@@ -334,6 +340,7 @@ func (server *Service) watchFilesChange() {
 		w.Ignore(dir + "/_tmp/")
 		w.Ignore(dir + "/" + LARGE_DIR_NAME + "/")
 	}
+
 	if err := w.AddRecursive("./" + STORE_DIR_NAME); err != nil {
 		slog.Error(err)
 	}
@@ -344,7 +351,7 @@ func (server *Service) watchFilesChange() {
 	}
 }
 
-// 服务
+// 10 服务 -> 加载搜索字典文件
 func (server *Service) loadSearchDict() {
 	go func() {
 		slog.Info("Load search dict ....")
@@ -354,10 +361,12 @@ func (server *Service) loadSearchDict() {
 			return
 		}
 		defer f.Close()
+
+		//
 		r := bufio.NewReader(f)
 		for {
-			line, isprefix, err := r.ReadLine()
-			for isprefix && err == nil {
+			line, isPreFix, err := r.ReadLine()
+			for isPreFix && err == nil {
 				kvs := strings.Split(string(line), "\t")
 				if len(kvs) == 2 {
 					server.searchMap.Put(kvs[0], kvs[1])
@@ -368,14 +377,123 @@ func (server *Service) loadSearchDict() {
 	}()
 }
 
-//
+// 11 服务 -> 数据迁移服务
+func (server *Service) repairFileInfoFromFile() {
+	var (
+		pathPrefix string
+		err        error
+		fi         os.FileInfo
+	)
+	defer func() {
+		if re := recover(); re != nil {
+			buffer := debug.Stack()
+			slog.Error("RepairFileInfoFromFile")
+			slog.Error(re)
+			slog.Error(string(buffer))
+		}
+	}()
+
+	// 获取锁
+	if server.lockMap.IsLock("RepairFileInfoFromFile") {
+		slog.Warn("Lock RepairFileInfoFromFile")
+		return
+	}
+	server.lockMap.LockKey("RepairFileInfoFromFile")
+	defer server.lockMap.UnLockKey("RepairFileInfoFromFile")
+
+	// 定义功能
+	HandleFunc := func(filePath string, f os.FileInfo, err error) error {
+		var (
+			files    []os.FileInfo
+			fi       os.FileInfo
+			fileInfo en.FileInfo
+			sum      string
+			pathMd5  string
+		)
+		if f.IsDir() {
+			files, err = ioutil.ReadDir(filePath)
+
+			if err != nil {
+				return err
+			}
+			for _, fi = range files {
+				if fi.IsDir() || fi.Size() == 0 {
+					continue
+				}
+				filePath = strings.Replace(filePath, "\\", "/", -1)
+				if DOCKER_DIR != "" {
+					filePath = strings.Replace(filePath, DOCKER_DIR, "", 1)
+				}
+				if pathPrefix != "" {
+					filePath = strings.Replace(filePath, pathPrefix, STORE_DIR_NAME, 1)
+				}
+				if strings.HasPrefix(filePath, STORE_DIR_NAME+"/"+LARGE_DIR_NAME) {
+					slog.Info(fmt.Sprintf("ignore small file file %s", filePath+"/"+fi.Name()))
+					continue
+				}
+				pathMd5 = util.MD5(filePath + "/" + fi.Name())
+				//if finfo, _ := server.GetFileInfoFromLevelDB(pathMd5); finfo != nil && finfo.Md5 != "" {
+				//	slog.Info(fmt.Sprintf("exist ignore file %s", file_path+"/"+fi.Name()))
+				//	continue
+				//}
+				//sum, err = util.GetFileSumByName(file_path+"/"+fi.Name(), Config().FileSumArithmetic)
+				sum = pathMd5
+				if err != nil {
+					slog.Error(err)
+					continue
+				}
+				fileInfo = en.FileInfo{
+					Size:      fi.Size(),
+					Name:      fi.Name(),
+					Path:      filePath,
+					Md5:       sum,
+					TimeStamp: fi.ModTime().Unix(),
+					Peers:     []string{server.host},
+					OffSet:    -2,
+				}
+				//slog.Info(fileInfo)
+				slog.Info(filePath, "/", fi.Name())
+				server.AppendToQueue(&fileInfo)
+				//server.postFileToPeer(&fileInfo)
+				server.SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
+				//server.SaveFileMd5Log(&fileInfo, CONST_FILE_Md5_FILE_NAME)
+			}
+		}
+		return nil
+	}
+
+	//
+	pathname := STORE_DIR
+	pathPrefix, err = os.Readlink(pathname)
+	if err == nil {
+		//link
+		pathname = pathPrefix
+		if strings.HasSuffix(pathPrefix, "/") {
+			//bugfix fullpath
+			pathPrefix = pathPrefix[0 : len(pathPrefix)-1]
+		}
+	}
+	fi, err = os.Stat(pathname)
+	if err != nil {
+		slog.Error(err)
+	}
+	if fi.IsDir() {
+		filepath.Walk(pathname, HandleFunc)
+	}
+	slog.Info("RepairFileInfoFromFile is finish.")
+}
+
+// 12 服务 -> 自动修复文件并同步集群数据服务
 func (server *Service) autoRepair(forceRepair bool) {
+	// 获取锁
 	if server.lockMap.IsLock("AutoRepair") {
 		slog.Warn("Lock AutoRepair")
 		return
 	}
 	server.lockMap.LockKey("AutoRepair")
 	defer server.lockMap.UnLockKey("AutoRepair")
+
+	// 定义自动修复功能
 	AutoRepairFunc := func(forceRepair bool) {
 		var (
 			dateStats []en.StatDateFileInfo
@@ -396,8 +514,10 @@ func (server *Service) autoRepair(forceRepair bool) {
 				slog.Error(string(buffer))
 			}
 		}()
+
+		// 定义更新数据功能
 		Update := func(peer string, dateStat en.StatDateFileInfo) {
-			//从远端拉数据过来
+			// 从远端拉数据过来
 			req := httplib.Get(fmt.Sprintf("%s%s?date=%s&force=%s", peer, server.getRequestURI("sync"), dateStat.Date, "1"))
 			req.SetTimeout(time.Second*5, time.Second*5)
 			if _, err = req.String(); err != nil {
@@ -422,8 +542,8 @@ func (server *Service) autoRepair(forceRepair bool) {
 					switch v.(type) {
 					case int64:
 						if v.(int64) != dateStat.FileCount || forceRepair {
-							//不相等,找差异
-							//TODO
+							// 不相等,找差异
+							// TODO
 							req := httplib.Post(fmt.Sprintf("%s%s", peer, server.getRequestURI("get_md5s_by_date")))
 							req.SetTimeout(time.Second*15, time.Second*60)
 							req.Param("date", dateStat.Date)
@@ -461,104 +581,4 @@ func (server *Service) autoRepair(forceRepair bool) {
 		}
 	}
 	AutoRepairFunc(forceRepair)
-}
-
-// 服务
-func (server *Service) repairFileInfoFromFile() {
-	var (
-		pathPrefix string
-		err        error
-		fi         os.FileInfo
-	)
-	defer func() {
-		if re := recover(); re != nil {
-			buffer := debug.Stack()
-			slog.Error("RepairFileInfoFromFile")
-			slog.Error(re)
-			slog.Error(string(buffer))
-		}
-	}()
-	if server.lockMap.IsLock("RepairFileInfoFromFile") {
-		slog.Warn("Lock RepairFileInfoFromFile")
-		return
-	}
-	server.lockMap.LockKey("RepairFileInfoFromFile")
-	defer server.lockMap.UnLockKey("RepairFileInfoFromFile")
-	handlefunc := func(file_path string, f os.FileInfo, err error) error {
-		var (
-			files    []os.FileInfo
-			fi       os.FileInfo
-			fileInfo en.FileInfo
-			sum      string
-			pathMd5  string
-		)
-		if f.IsDir() {
-			files, err = ioutil.ReadDir(file_path)
-
-			if err != nil {
-				return err
-			}
-			for _, fi = range files {
-				if fi.IsDir() || fi.Size() == 0 {
-					continue
-				}
-				file_path = strings.Replace(file_path, "\\", "/", -1)
-				if DOCKER_DIR != "" {
-					file_path = strings.Replace(file_path, DOCKER_DIR, "", 1)
-				}
-				if pathPrefix != "" {
-					file_path = strings.Replace(file_path, pathPrefix, STORE_DIR_NAME, 1)
-				}
-				if strings.HasPrefix(file_path, STORE_DIR_NAME+"/"+LARGE_DIR_NAME) {
-					slog.Info(fmt.Sprintf("ignore small file file %s", file_path+"/"+fi.Name()))
-					continue
-				}
-				pathMd5 = util.MD5(file_path + "/" + fi.Name())
-				//if finfo, _ := server.GetFileInfoFromLevelDB(pathMd5); finfo != nil && finfo.Md5 != "" {
-				//	slog.Info(fmt.Sprintf("exist ignore file %s", file_path+"/"+fi.Name()))
-				//	continue
-				//}
-				//sum, err = util.GetFileSumByName(file_path+"/"+fi.Name(), Config().FileSumArithmetic)
-				sum = pathMd5
-				if err != nil {
-					slog.Error(err)
-					continue
-				}
-				fileInfo = en.FileInfo{
-					Size:      fi.Size(),
-					Name:      fi.Name(),
-					Path:      file_path,
-					Md5:       sum,
-					TimeStamp: fi.ModTime().Unix(),
-					Peers:     []string{server.host},
-					OffSet:    -2,
-				}
-				//slog.Info(fileInfo)
-				slog.Info(file_path, "/", fi.Name())
-				server.AppendToQueue(&fileInfo)
-				//server.postFileToPeer(&fileInfo)
-				server.SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
-				//server.SaveFileMd5Log(&fileInfo, CONST_FILE_Md5_FILE_NAME)
-			}
-		}
-		return nil
-	}
-	pathname := STORE_DIR
-	pathPrefix, err = os.Readlink(pathname)
-	if err == nil {
-		//link
-		pathname = pathPrefix
-		if strings.HasSuffix(pathPrefix, "/") {
-			//bugfix fullpath
-			pathPrefix = pathPrefix[0 : len(pathPrefix)-1]
-		}
-	}
-	fi, err = os.Stat(pathname)
-	if err != nil {
-		slog.Error(err)
-	}
-	if fi.IsDir() {
-		filepath.Walk(pathname, handlefunc)
-	}
-	slog.Info("RepairFileInfoFromFile is finish.")
 }

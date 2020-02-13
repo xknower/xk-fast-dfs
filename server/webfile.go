@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-//
+// 文件信息添加到队列 -> 检测文件并加载到处理队列
 func (server *Service) AppendToDownloadQueue(fileInfo *en.FileInfo) {
 	for (len(server.queueFromPeers) + CONST_QUEUE_SIZE/10) > CONST_QUEUE_SIZE {
 		time.Sleep(time.Millisecond * 50)
@@ -18,7 +18,7 @@ func (server *Service) AppendToDownloadQueue(fileInfo *en.FileInfo) {
 	server.queueFromPeers <- *fileInfo
 }
 
-//
+// 文件信息添加到队列 -> 检测文件并加载到处理队列
 func (server *Service) AppendToQueue(fileInfo *en.FileInfo) {
 	for (len(server.queueToPeers) + CONST_QUEUE_SIZE/10) > CONST_QUEUE_SIZE {
 		time.Sleep(time.Millisecond * 50)
