@@ -2,7 +2,6 @@ package server
 
 import (
 	"../en"
-	"../web"
 	"bytes"
 	"errors"
 	"fmt"
@@ -223,7 +222,7 @@ func (server *Service) initTus() {
 
 	store.UseIn(composer)
 	SetupPreHooks := func(composer *tusd.StoreComposer) {
-		composer.UseCore(web.HookDataStore{
+		composer.UseCore(en.HookDataStore{
 			DataStore: composer.Core,
 		})
 	}

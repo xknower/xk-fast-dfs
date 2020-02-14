@@ -2,7 +2,6 @@ package server
 
 import (
 	"../en"
-	"../web"
 	"errors"
 	"fmt"
 	"github.com/astaxie/beego/httplib"
@@ -20,7 +19,7 @@ func (server *Service) CheckAuth(w http.ResponseWriter, r *http.Request) bool {
 		err        error
 		req        *httplib.BeegoHTTPRequest
 		result     string
-		jsonResult web.JsonResult
+		jsonResult en.JsonResult
 	)
 	if err = r.ParseForm(); err != nil {
 		slog.Error(err)

@@ -2,7 +2,6 @@ package server
 
 import (
 	"../en"
-	"../web"
 	"bufio"
 	"fmt"
 	"github.com/astaxie/beego/httplib"
@@ -100,7 +99,7 @@ func (server *Service) checkClusterStatus() {
 			}
 		}()
 		var (
-			status  web.JsonResult
+			status  en.JsonResult
 			err     error
 			subject string
 			body    string
