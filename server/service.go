@@ -33,7 +33,7 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 			slog.Error(string(buffer))
 		}
 	}()
-	if md5set, err = server.GetMd5sByDate(date, filename); err != nil {
+	if md5set, err = server.getMd5sByDate(date, filename); err != nil {
 		slog.Error(err)
 		return
 	}
@@ -74,7 +74,7 @@ func (server *Service) cleanAndBackUp() {
 			for _, filename := range filenames {
 				server.cleanLogLevelDBByDate(yesterday, filename)
 			}
-			server.BackUpMetaDataByDate(yesterday)
+			server.backUpMetaDataByDate(yesterday)
 			server.curDate = util.GetToDay()
 		}
 	}
@@ -193,7 +193,7 @@ func (server *Service) consumerDownLoad() {
 					continue
 				}
 				if peer != server.host {
-					server.DownloadFromPeer(peer, &fileInfo)
+					server.downloadFromPeer(peer, &fileInfo)
 					break
 				}
 			}
@@ -548,7 +548,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 							if md5s, err = req.String(); err != nil {
 								continue
 							}
-							if localSet, err = server.GetMd5sByDate(dateStat.Date, CONST_FILE_Md5_FILE_NAME); err != nil {
+							if localSet, err = server.getMd5sByDate(dateStat.Date, CONST_FILE_Md5_FILE_NAME); err != nil {
 								slog.Error(err)
 								continue
 							}
