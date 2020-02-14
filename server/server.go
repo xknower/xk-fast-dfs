@@ -10,7 +10,6 @@ import (
 	slog "github.com/sjqzhang/seelog"
 	"github.com/sjqzhang/tusd"
 	"github.com/sjqzhang/tusd/filestore"
-	"github.com/syndtr/goleveldb/leveldb"
 	dbutil "github.com/syndtr/goleveldb/leveldb/util"
 	"io"
 	"log"
@@ -522,22 +521,6 @@ func (server *Service) initTus() {
 	http.Handle(bigDir, http.StripPrefix(bigDir, handler))
 }
 
-// 获取文件信息(从数据库加载文件信息) -> 检测文件并加载到处理队列 | 自动修复文件并同步集群数据服务
-func (server *Service) getFileInfoFromLevelDB(key string) (*en.FileInfo, error) {
-	var (
-		err      error
-		data     []byte
-		fileInfo en.FileInfo
-	)
-	if data, err = server.ldb.Get([]byte(key), nil); err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(data, &fileInfo); err != nil {
-		return nil, err
-	}
-	return &fileInfo, nil
-}
-
 //
 func (server *Service) GetFilePathByInfo(fileInfo *en.FileInfo, withDocker bool) string {
 	var (
@@ -551,41 +534,6 @@ func (server *Service) GetFilePathByInfo(fileInfo *en.FileInfo, withDocker bool)
 		return DOCKER_DIR + fileInfo.Path + "/" + fn
 	}
 	return fileInfo.Path + "/" + fn
-}
-
-// 保存文件信息到数据库
-func (server *Service) saveFileInfoToLevelDB(key string, fileInfo *en.FileInfo, db *leveldb.DB) (*en.FileInfo, error) {
-	var (
-		err  error
-		data []byte
-	)
-	if fileInfo == nil || db == nil {
-		return nil, errors.New("fileInfo is null or db is null")
-	}
-	if data, err = json.Marshal(fileInfo); err != nil {
-		return fileInfo, err
-	}
-	if err = db.Put([]byte(key), data, nil); err != nil {
-		return fileInfo, err
-	}
-	if db == server.ldb {
-		// search slow ,write fast, double write logDB (搜索速度慢，写入速度快，双写入日志数据库)
-		logDate := util.GetDayFromTimeStamp(fileInfo.TimeStamp)
-		logKey := fmt.Sprintf("%s_%s_%s", logDate, CONST_FILE_Md5_FILE_NAME, fileInfo.Md5)
-		server.logDB.Put([]byte(logKey), data, nil)
-	}
-	return fileInfo, nil
-}
-
-//
-//
-func (server *Service) AppendToFileMd5LogQueue(fileInfo *en.FileInfo, filename string) {
-	var info en.FileInfo
-	for len(server.queueFileLog)+len(server.queueFileLog)/10 > CONST_QUEUE_SIZE {
-		time.Sleep(time.Second * 1)
-	}
-	info = *fileInfo
-	server.queueFileLog <- &en.FileLog{FileInfo: &info, FileName: filename}
 }
 
 //

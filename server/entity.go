@@ -25,15 +25,15 @@ var util = &goutil.Common{}
 
 // 定义服务结构
 type Service struct {
-	ldb            *leveldb.DB         // 数据日志, 文件信息数据
-	logDB          *leveldb.DB         // 操作日志
-	statMap        *goutil.CommonMap   // 状态信息 state.json
-	sumMap         *goutil.CommonMap   //
-	rtMap          *goutil.CommonMap   // 上传文件 (读写锁)
-	queueToPeers   chan en.FileInfo    // 文件信息处理队列, 文件信息保存
-	queueFromPeers chan en.FileInfo    // 文件信息处理队列, 文件信息获取
+	ldb            *leveldb.DB         // 数据日志, 文件信息数据 [data.db]
+	logDB          *leveldb.DB         // 操作日志 [log.db]
+	queueToPeers   chan en.FileInfo    // 集群文件上传处理队列
+	queueFromPeers chan en.FileInfo    // 集群文件下载处理队列
 	queueFileLog   chan *en.FileLog    // 文件日志处理队列
 	queueUpload    chan en.WrapReqResp // HTTP文件上传处理队列
+	statMap        *goutil.CommonMap   // 处理状态信息 state.json
+	sumMap         *goutil.CommonMap   //
+	rtMap          *goutil.CommonMap   // 处理[HTTP文件上传处理队列]上传文件 (读写锁)
 	lockMap        *goutil.CommonMap   // 读写锁
 	sceneMap       *goutil.CommonMap   //
 	searchMap      *goutil.CommonMap   // 加载搜索字典 (读写锁)

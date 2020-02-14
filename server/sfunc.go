@@ -7,7 +7,6 @@ import (
 	"github.com/astaxie/beego/httplib"
 	mapset "github.com/deckarep/golang-set"
 	slog "github.com/sjqzhang/seelog"
-	"github.com/syndtr/goleveldb/leveldb"
 	dbutil "github.com/syndtr/goleveldb/leveldb/util"
 	"mime/multipart"
 	"net/http"
@@ -16,6 +15,181 @@ import (
 	"strings"
 	"time"
 )
+
+// 处理文件上传队列服务 -> 上传文件
+func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
+	var (
+		err error
+		ok  bool
+		//		pathname     string
+		md5sum       string
+		fileName     string
+		fileInfo     en.FileInfo
+		uploadFile   multipart.File
+		uploadHeader *multipart.FileHeader
+		scene        string
+		output       string
+		fileResult   en.FileResult
+		data         []byte
+		code         string
+		secret       interface{}
+	)
+	output = r.FormValue("output")
+	if enableCrossOrigin {
+		web.CrossOrigin(w, r)
+		if r.Method == http.MethodOptions {
+			return
+		}
+	}
+
+	if authUrl != "" {
+		if !server.checkAuth(w, r) {
+			slog.Warn("auth fail", r.Form)
+			server.notPermit(w, r)
+			w.Write([]byte("auth fail"))
+			return
+		}
+	}
+	if r.Method == http.MethodPost {
+		md5sum = r.FormValue("md5")
+		fileName = r.FormValue("filename")
+		output = r.FormValue("output")
+		if readOnly {
+			w.Write([]byte("(error) readonly"))
+			return
+		}
+		if enableCustomPath {
+			fileInfo.Path = r.FormValue("path")
+			fileInfo.Path = strings.Trim(fileInfo.Path, "/")
+		}
+		scene = r.FormValue("scene")
+		code = r.FormValue("code")
+		if scene == "" {
+			//Just for Compatibility
+			scene = r.FormValue("scenes")
+		}
+		if enableGoogleAuth && scene != "" {
+			if secret, ok = server.sceneMap.GetValue(scene); ok {
+				if !server.verifyGoogleCode(secret.(string), code, int64(downloadTokenExpire/30)) {
+					server.notPermit(w, r)
+					w.Write([]byte("invalid request,error google code"))
+					return
+				}
+			}
+		}
+		fileInfo.Md5 = md5sum
+		fileInfo.ReName = fileName
+		fileInfo.OffSet = -1
+		if uploadFile, uploadHeader, err = r.FormFile("file"); err != nil {
+			slog.Error(err)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		fileInfo.Peers = []string{}
+		fileInfo.TimeStamp = time.Now().Unix()
+		if scene == "" {
+			scene = defaultScene
+		}
+		if output == "" {
+			output = "text"
+		}
+		if !util.Contains(output, []string{"json", "text"}) {
+			w.Write([]byte("output just support json or text"))
+			return
+		}
+		fileInfo.Scene = scene
+		if _, err = server.checkScene(scene); err != nil {
+			w.Write([]byte(err.Error()))
+			return
+		}
+		if err != nil {
+			slog.Error(err)
+			http.Redirect(w, r, "/", http.StatusMovedPermanently)
+			return
+		}
+		if _, err = server.processUploadFile(uploadFile, uploadHeader, &fileInfo, r); err != nil {
+			w.Write([]byte(err.Error()))
+			return
+		}
+		if enableDistinctFile {
+			// 文件去重
+			if v, _ := server.getFileInfoFromLevelDB(fileInfo.Md5); v != nil && v.Md5 != "" {
+				fileResult = server.buildFileResult(v, r)
+				if renameFile {
+					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName)
+				} else {
+					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name)
+				}
+				if output == "json" {
+					if data, err = json.Marshal(fileResult); err != nil {
+						slog.Error(err)
+						w.Write([]byte(err.Error()))
+					}
+					w.Write(data)
+				} else {
+					w.Write([]byte(fileResult.Url))
+				}
+				return
+			}
+		}
+		if fileInfo.Md5 == "" {
+			slog.Warn(" fileInfo.Md5 is null")
+			return
+		}
+		if md5sum != "" && fileInfo.Md5 != md5sum {
+			slog.Warn(" fileInfo.Md5 and md5sum !=")
+			return
+		}
+		if !enableDistinctFile {
+			// bugfix filecount stat
+			fileInfo.Md5 = util.MD5(server.GetFilePathByInfo(&fileInfo, false))
+		}
+		if enableMergeSmallFile && fileInfo.Size < CONST_SMALL_FILE_SIZE {
+			// 保存小文件
+			if err = server.saveSmallFile(&fileInfo); err != nil {
+				slog.Error(err)
+				return
+			}
+		}
+		server.AppendToFileMd5LogQueue(&fileInfo, CONST_FILE_Md5_FILE_NAME) //maybe slow
+		go server.postFileToPeer(&fileInfo)
+		if fileInfo.Size <= 0 {
+			slog.Error("file size is zero")
+			return
+		}
+		fileResult = server.buildFileResult(&fileInfo, r)
+		if output == "json" {
+			if data, err = json.Marshal(fileResult); err != nil {
+				slog.Error(err)
+				w.Write([]byte(err.Error()))
+			}
+			w.Write(data)
+		} else {
+			w.Write([]byte(fileResult.Url))
+		}
+		return
+	} else {
+		md5sum = r.FormValue("md5")
+		output = r.FormValue("output")
+		if md5sum == "" {
+			w.Write([]byte("(error) if you want to upload fast md5 is require" +
+				",and if you want to upload file,you must use post method  "))
+			return
+		}
+		if v, _ := server.getFileInfoFromLevelDB(md5sum); v != nil && v.Md5 != "" {
+			fileResult = server.buildFileResult(v, r)
+		}
+		if output == "json" {
+			if data, err = json.Marshal(fileResult); err != nil {
+				slog.Error(err)
+				w.Write([]byte(err.Error()))
+			}
+			w.Write(data)
+		} else {
+			w.Write([]byte(fileResult.Url))
+		}
+	}
+}
 
 // 检测文件并加载到处理队列 -> 获取MD5文件中保存的文件信息 | 自动修复文件并同步集群数据服务
 func (server *Service) getMd5sByDate(date string, filename string) (mapset.Set, error) {
@@ -36,22 +210,6 @@ func (server *Service) getMd5sByDate(date string, filename string) (mapset.Set, 
 	}
 	iter.Release()
 	return md5set, nil
-}
-
-// 文件信息添加到队列 -> 检测文件并加载到处理队列
-func (server *Service) AppendToDownloadQueue(fileInfo *en.FileInfo) {
-	for (len(server.queueFromPeers) + CONST_QUEUE_SIZE/10) > CONST_QUEUE_SIZE {
-		time.Sleep(time.Millisecond * 50)
-	}
-	server.queueFromPeers <- *fileInfo
-}
-
-// 文件信息添加到队列 -> 检测文件并加载到处理队列
-func (server *Service) AppendToQueue(fileInfo *en.FileInfo) {
-	for (len(server.queueToPeers) + CONST_QUEUE_SIZE/10) > CONST_QUEUE_SIZE {
-		time.Sleep(time.Millisecond * 50)
-	}
-	server.queueToPeers <- *fileInfo
 }
 
 // 清理 -> 定期清理及备份数据服务
@@ -83,11 +241,6 @@ func (server *Service) cleanLogLevelDBByDate(date string, filename string) {
 			slog.Error(err)
 		}
 	}
-}
-
-//
-func (server *Service) removeKeyFromLevelDB(key string, db *leveldb.DB) error {
-	return db.Delete([]byte(key), nil)
 }
 
 // 备份 -> 定期清理及备份数据服务
@@ -204,102 +357,6 @@ func (server *Service) loadFileInfoByDate(date string, filename string) (mapset.
 	return fileInfos, nil
 }
 
-// 从集群中获取文件
-func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
-	var (
-		err      error
-		peer     string
-		filename string
-		info     *en.FileInfo
-		postURL  string
-		result   string
-		fi       os.FileInfo
-		i        int
-		data     []byte
-		fpath    string
-	)
-	defer func() {
-		if re := recover(); re != nil {
-			buffer := debug.Stack()
-			slog.Error("postFileToPeer")
-			slog.Error(re)
-			slog.Error(string(buffer))
-		}
-	}()
-	//fmt.Println("postFile",fileInfo)
-	for i, peer = range peers {
-		_ = i
-		if fileInfo.Peers == nil {
-			fileInfo.Peers = []string{}
-		}
-		if util.Contains(peer, fileInfo.Peers) {
-			continue
-		}
-		filename = fileInfo.Name
-		if fileInfo.ReName != "" {
-			filename = fileInfo.ReName
-			if fileInfo.OffSet != -1 {
-				filename = strings.Split(fileInfo.ReName, ",")[0]
-			}
-		}
-		fpath = DOCKER_DIR + fileInfo.Path + "/" + filename
-		if !util.FileExists(fpath) {
-			slog.Warn(fmt.Sprintf("file '%s' not found", fpath))
-			continue
-		} else {
-			if fileInfo.Size == 0 {
-				if fi, err = os.Stat(fpath); err != nil {
-					slog.Error(err)
-				} else {
-					fileInfo.Size = fi.Size()
-				}
-			}
-		}
-		if fileInfo.OffSet != -2 && enableDistinctFile {
-			//not migrate file should check or update file
-			// where not EnableDistinctFile should check
-			if info, err = server.checkPeerFileExist(peer, fileInfo.Md5, ""); info.Md5 != "" {
-				fileInfo.Peers = append(fileInfo.Peers, peer)
-				if _, err = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
-					slog.Error(err)
-				}
-				continue
-			}
-		}
-		postURL = fmt.Sprintf("%s%s", peer, server.getRequestURI("syncfile_info"))
-		b := httplib.Post(postURL)
-		b.SetTimeout(time.Second*30, time.Second*30)
-		if data, err = json.Marshal(fileInfo); err != nil {
-			slog.Error(err)
-			return
-		}
-		b.Param("fileInfo", string(data))
-		result, err = b.String()
-		if err != nil {
-			if fileInfo.Retry <= retryCount {
-				fileInfo.Retry = fileInfo.Retry + 1
-				server.AppendToQueue(fileInfo)
-			}
-			slog.Error(err, fmt.Sprintf(" path:%s", fileInfo.Path+"/"+fileInfo.Name))
-		}
-		if !strings.HasPrefix(result, "http://") || err != nil {
-			server.AppendToFileMd5LogQueue(fileInfo, CONST_Md5_ERROR_FILE_NAME)
-		}
-		if strings.HasPrefix(result, "http://") {
-			slog.Info(result)
-			if !util.Contains(peer, fileInfo.Peers) {
-				fileInfo.Peers = append(fileInfo.Peers, peer)
-				if _, err = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
-					slog.Error(err)
-				}
-			}
-		}
-		if err != nil {
-			slog.Error(err)
-		}
-	}
-}
-
 // 保存操作文件信息日志 -> 处理日志队列服务
 func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 	var (
@@ -369,179 +426,6 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 		return
 	}
 	server.saveFileInfoToLevelDB(logKey, fileInfo, server.logDB)
-}
-
-// 处理文件上传队列服务 -> 上传文件
-func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
-	var (
-		err error
-		ok  bool
-		//		pathname     string
-		md5sum       string
-		fileName     string
-		fileInfo     en.FileInfo
-		uploadFile   multipart.File
-		uploadHeader *multipart.FileHeader
-		scene        string
-		output       string
-		fileResult   en.FileResult
-		data         []byte
-		code         string
-		secret       interface{}
-	)
-	output = r.FormValue("output")
-	if enableCrossOrigin {
-		web.CrossOrigin(w, r)
-		if r.Method == http.MethodOptions {
-			return
-		}
-	}
-
-	if authUrl != "" {
-		if !server.checkAuth(w, r) {
-			slog.Warn("auth fail", r.Form)
-			server.notPermit(w, r)
-			w.Write([]byte("auth fail"))
-			return
-		}
-	}
-	if r.Method == http.MethodPost {
-		md5sum = r.FormValue("md5")
-		fileName = r.FormValue("filename")
-		output = r.FormValue("output")
-		if readOnly {
-			w.Write([]byte("(error) readonly"))
-			return
-		}
-		if enableCustomPath {
-			fileInfo.Path = r.FormValue("path")
-			fileInfo.Path = strings.Trim(fileInfo.Path, "/")
-		}
-		scene = r.FormValue("scene")
-		code = r.FormValue("code")
-		if scene == "" {
-			//Just for Compatibility
-			scene = r.FormValue("scenes")
-		}
-		if enableGoogleAuth && scene != "" {
-			if secret, ok = server.sceneMap.GetValue(scene); ok {
-				if !server.verifyGoogleCode(secret.(string), code, int64(downloadTokenExpire/30)) {
-					server.notPermit(w, r)
-					w.Write([]byte("invalid request,error google code"))
-					return
-				}
-			}
-		}
-		fileInfo.Md5 = md5sum
-		fileInfo.ReName = fileName
-		fileInfo.OffSet = -1
-		if uploadFile, uploadHeader, err = r.FormFile("file"); err != nil {
-			slog.Error(err)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		fileInfo.Peers = []string{}
-		fileInfo.TimeStamp = time.Now().Unix()
-		if scene == "" {
-			scene = defaultScene
-		}
-		if output == "" {
-			output = "text"
-		}
-		if !util.Contains(output, []string{"json", "text"}) {
-			w.Write([]byte("output just support json or text"))
-			return
-		}
-		fileInfo.Scene = scene
-		if _, err = server.checkScene(scene); err != nil {
-			w.Write([]byte(err.Error()))
-			return
-		}
-		if err != nil {
-			slog.Error(err)
-			http.Redirect(w, r, "/", http.StatusMovedPermanently)
-			return
-		}
-		if _, err = server.saveUploadFile(uploadFile, uploadHeader, &fileInfo, r); err != nil {
-			w.Write([]byte(err.Error()))
-			return
-		}
-		if enableDistinctFile {
-			if v, _ := server.getFileInfoFromLevelDB(fileInfo.Md5); v != nil && v.Md5 != "" {
-				fileResult = server.buildFileResult(v, r)
-				if renameFile {
-					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName)
-				} else {
-					os.Remove(DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name)
-				}
-				if output == "json" {
-					if data, err = json.Marshal(fileResult); err != nil {
-						slog.Error(err)
-						w.Write([]byte(err.Error()))
-					}
-					w.Write(data)
-				} else {
-					w.Write([]byte(fileResult.Url))
-				}
-				return
-			}
-		}
-		if fileInfo.Md5 == "" {
-			slog.Warn(" fileInfo.Md5 is null")
-			return
-		}
-		if md5sum != "" && fileInfo.Md5 != md5sum {
-			slog.Warn(" fileInfo.Md5 and md5sum !=")
-			return
-		}
-		if !enableDistinctFile {
-			// bugfix filecount stat
-			fileInfo.Md5 = util.MD5(server.GetFilePathByInfo(&fileInfo, false))
-		}
-		if enableMergeSmallFile && fileInfo.Size < CONST_SMALL_FILE_SIZE {
-			if err = server.saveSmallFile(&fileInfo); err != nil {
-				slog.Error(err)
-				return
-			}
-		}
-		server.AppendToFileMd5LogQueue(&fileInfo, CONST_FILE_Md5_FILE_NAME) //maybe slow
-		go server.postFileToPeer(&fileInfo)
-		if fileInfo.Size <= 0 {
-			slog.Error("file size is zero")
-			return
-		}
-		fileResult = server.buildFileResult(&fileInfo, r)
-		if output == "json" {
-			if data, err = json.Marshal(fileResult); err != nil {
-				slog.Error(err)
-				w.Write([]byte(err.Error()))
-			}
-			w.Write(data)
-		} else {
-			w.Write([]byte(fileResult.Url))
-		}
-		return
-	} else {
-		md5sum = r.FormValue("md5")
-		output = r.FormValue("output")
-		if md5sum == "" {
-			w.Write([]byte("(error) if you want to upload fast md5 is require" +
-				",and if you want to upload file,you must use post method  "))
-			return
-		}
-		if v, _ := server.getFileInfoFromLevelDB(md5sum); v != nil && v.Md5 != "" {
-			fileResult = server.buildFileResult(v, r)
-		}
-		if output == "json" {
-			if data, err = json.Marshal(fileResult); err != nil {
-				slog.Error(err)
-				w.Write([]byte(err.Error()))
-			}
-			w.Write(data)
-		} else {
-			w.Write([]byte(fileResult.Url))
-		}
-	}
 }
 
 // 从集群中下载文件 -> 处理文件下载队列服务

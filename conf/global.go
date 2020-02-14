@@ -31,7 +31,7 @@ var (
 	DirLog                  = LOG_DIR_NAME
 	DirLargeName            = "haystack"
 	DirLarge                = DirStore + "/haystack"
-	CONSTLevelDBFileName    = DirData + "/fileserver.db"
+	CONSTLevelDBFileName    = DirData + "/data.db"
 	CONSTLevelDBFileNameLog = DirData + "/log.db"
 	CONSTStatFileName       = DirData + "/stat.json"
 	CONSTConfFileName       = DirConf + "/cfg.json"
