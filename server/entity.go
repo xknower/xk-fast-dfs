@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/astaxie/beego/httplib"
 	_ "github.com/eventials/go-tus"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/sjqzhang/goutil"
 	slog "github.com/sjqzhang/seelog"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -14,14 +13,6 @@ import (
 	_ "net/http/pprof"
 	"time"
 )
-
-const GO_FASTDFS_IP = "GO_FASTDFS_IP"
-
-// JSON 解析
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
-
-// 工具
-var util = &goutil.Common{}
 
 // 定义服务结构
 type Service struct {

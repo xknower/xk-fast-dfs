@@ -2,22 +2,13 @@ package conf
 
 import (
 	"fmt"
-	jsoniter "github.com/json-iterator/go"
+
 	"io/ioutil"
 	"os"
 	"strings"
 	"sync/atomic"
 	"unsafe"
 )
-
-// 配置文件名
-var FileName string
-
-//
-var ptr unsafe.Pointer
-
-// JSON 解析
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // 全局配置
 type GlobalConfig struct {

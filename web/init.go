@@ -13,29 +13,30 @@ var json = jsoniter.ConfigCompatibleWithStandardLibrary
 //
 var util = &goutil.Common{}
 
-var (
-	STORE_DIR      = ""
-	DATA_DIR       = ""
-	DOCKER_DIR     = ""
-	STATIC_DIR     = ""
-	LARGE_DIR_NAME = ""
-)
-
 const (
-	CONST_SMALL_FILE_SIZE          = int(1024 * 1024)
-	CONST_STAT_FILE_COUNT_KEY      = "fileCount"
-	CONST_FILE_Md5_FILE_NAME       = "files.md5"
-	CONST_BIG_UPLOAD_PATH_SUFFIX   = "/big/upload/"
-	CONST_STAT_FILE_TOTAL_SIZE_KEY = "totalSize"
-	CONST_Md5_ERROR_FILE_NAME      = "errors.md5"
-	CONST_Md5_QUEUE_FILE_NAME      = "queue.md5"
-	CONST_REMOME_Md5_FILE_NAME     = "removes.md5"
-	CONST_MESSAGE_CLUSTER_IP       = "Can only be called by the cluster ip or 127.0.0.1 or admin_ips(cfg.json),current ip:%s"
-	GO_FASTDFS_IP                  = "GO_FASTDFS_IP"
+	CONST_SMALL_FILE_SIZE          = int(conf.CONST_SMALL_FILE_SIZE)
+	CONST_STAT_FILE_COUNT_KEY      = conf.CONST_STAT_FILE_COUNT_KEY
+	CONST_FILE_Md5_FILE_NAME       = conf.CONST_FILE_Md5_FILE_NAME
+	CONST_BIG_UPLOAD_PATH_SUFFIX   = conf.CONST_BIG_UPLOAD_PATH_SUFFIX
+	CONST_STAT_FILE_TOTAL_SIZE_KEY = conf.CONST_STAT_FILE_TOTAL_SIZE_KEY
+	CONST_Md5_ERROR_FILE_NAME      = conf.CONST_Md5_ERROR_FILE_NAME
+	CONST_Md5_QUEUE_FILE_NAME      = conf.CONST_Md5_QUEUE_FILE_NAME
+	CONST_REMOME_Md5_FILE_NAME     = conf.CONST_REMOME_Md5_FILE_NAME
+	CONST_MESSAGE_CLUSTER_IP       = conf.CONST_MESSAGE_CLUSTER_IP
+	GO_FASTDFS_IP                  = conf.GO_FASTDFS_IP
+)
+
+// 项目应用目录
+var (
+	DOCKER_DIR     = conf.DirDocker
+	DATA_DIR       = conf.DirData
+	STORE_DIR      = conf.DirStore
+	LARGE_DIR_NAME = conf.DirLargeName
+	STATIC_DIR     = conf.DirStatic
+	STORE_DIR_NAME = conf.STORE_DIR_NAME
 )
 
 var (
-	STORE_DIR_NAME      = ""
 	Group               string
 	EnableCrossOrigin   bool
 	ShowDir             bool
@@ -65,7 +66,6 @@ var (
 var staticHandler http.Handler
 
 func init() {
-	STORE_DIR_NAME = conf.STORE_DIR_NAME
 	Group = conf.Global().Group
 	EnableCrossOrigin = conf.Global().EnableCrossOrigin
 	ShowDir = conf.Global().ShowDir

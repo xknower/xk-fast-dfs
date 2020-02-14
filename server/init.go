@@ -1,36 +1,41 @@
 package server
 
-import "../conf"
-
-const (
-	//
-	CONST_STAT_FILE_COUNT_KEY      = "fileCount"
-	CONST_FILE_Md5_FILE_NAME       = "files.md5"
-	CONST_BIG_UPLOAD_PATH_SUFFIX   = "/big/upload/"
-	CONST_STAT_FILE_TOTAL_SIZE_KEY = "totalSize"
-	CONST_Md5_ERROR_FILE_NAME      = "errors.md5"
-	CONST_Md5_QUEUE_FILE_NAME      = "queue.md5"
-	CONST_REMOME_Md5_FILE_NAME     = "removes.md5"
-	CONST_SMALL_FILE_SIZE          = int64(1024 * 1024)
-	CONST_MESSAGE_CLUSTER_IP       = "Can only be called by the cluster ip or 127.0.0.1 or admin_ips(cfg.json),current ip:%s"
+import (
+	"../conf"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/sjqzhang/goutil"
 )
 
+const (
+	CONST_SMALL_FILE_SIZE          = conf.CONST_SMALL_FILE_SIZE
+	CONST_STAT_FILE_COUNT_KEY      = conf.CONST_STAT_FILE_COUNT_KEY
+	CONST_FILE_Md5_FILE_NAME       = conf.CONST_FILE_Md5_FILE_NAME
+	CONST_BIG_UPLOAD_PATH_SUFFIX   = conf.CONST_BIG_UPLOAD_PATH_SUFFIX
+	CONST_STAT_FILE_TOTAL_SIZE_KEY = conf.CONST_STAT_FILE_TOTAL_SIZE_KEY
+	CONST_Md5_ERROR_FILE_NAME      = conf.CONST_Md5_ERROR_FILE_NAME
+	CONST_Md5_QUEUE_FILE_NAME      = conf.CONST_Md5_QUEUE_FILE_NAME
+	CONST_REMOME_Md5_FILE_NAME     = conf.CONST_REMOME_Md5_FILE_NAME
+	CONST_MESSAGE_CLUSTER_IP       = conf.CONST_MESSAGE_CLUSTER_IP
+	GO_FASTDFS_IP                  = conf.GO_FASTDFS_IP
+)
+
+// 项目应用目录
 var (
-	DATA_DIR                    = ""
-	CONST_LEVELDB_FILE_NAME     = ""
-	CONST_LOG_LEVELDB_FILE_NAME = ""
-	CONST_SEARCH_FILE_NAME      = ""
-	CONST_STAT_FILE_NAME        = ""
-	CONST_QUEUE_SIZE            = 1
-	STORE_DIR                   = ""
-	DOCKER_DIR                  = ""
-	LARGE_DIR                   = ""
-	CONST_UPLOAD_COUNTER_KEY    = ""
-	LARGE_DIR_NAME              = ""
-	STORE_DIR_NAME              = ""
-	LOG_DIR                     = ""
-	AdminIps                    []string
-	CONST_CONF_FILE_NAME        = ""
+	DOCKER_DIR                  = conf.DirDocker
+	DATA_DIR                    = conf.DirData
+	STORE_DIR                   = conf.DirStore
+	LARGE_DIR_NAME              = conf.DirLargeName
+	STATIC_DIR                  = conf.DirStatic
+	LARGE_DIR                   = conf.DirLarge
+	LOG_DIR                     = conf.DirLog
+	STORE_DIR_NAME              = conf.STORE_DIR_NAME
+	CONST_CONF_FILE_NAME        = conf.CONSTConfFileName
+	CONST_LEVELDB_FILE_NAME     = conf.CONSTLevelDBFileName
+	CONST_LOG_LEVELDB_FILE_NAME = conf.CONSTLevelDBFileNameLog
+	CONST_SEARCH_FILE_NAME      = conf.CONSTSearchFileName
+	CONST_STAT_FILE_NAME        = conf.CONSTStatFileName
+	CONST_QUEUE_SIZE            = conf.CONSTQueueSize
+	CONST_UPLOAD_COUNTER_KEY    = conf.CONSTUploadCounterKey
 )
 
 var (
@@ -99,23 +104,17 @@ var (
 	refreshInterval int
 	// "绑定端号": "端口",
 	addr string
+	//
+	AdminIps []string
 )
 
+// JSON 解析
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+// 工具
+var util = &goutil.Common{}
+
 func init() {
-	DATA_DIR = conf.DirData
-	CONST_LEVELDB_FILE_NAME = conf.CONSTLevelDBFileName
-	CONST_LOG_LEVELDB_FILE_NAME = conf.CONSTLevelDBFileNameLog
-	CONST_STAT_FILE_NAME = conf.CONSTStatFileName
-	CONST_SEARCH_FILE_NAME = conf.CONSTSearchFileName
-	CONST_QUEUE_SIZE = conf.CONSTQueueSize
-	CONST_CONF_FILE_NAME = conf.CONSTConfFileName
-	STORE_DIR = conf.DirStore
-	DOCKER_DIR = conf.DirDocker
-	LARGE_DIR = conf.DirLarge
-	CONST_UPLOAD_COUNTER_KEY = conf.CONSTUploadCounterKey
-	LARGE_DIR_NAME = conf.DirLargeName
-	STORE_DIR_NAME = conf.STORE_DIR_NAME
-	LOG_DIR = conf.DirLog
 	//
 	peers = conf.Global().Peers
 	alarmReceivers = conf.Global().AlarmReceivers
