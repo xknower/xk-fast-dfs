@@ -53,9 +53,9 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 				fileInfo.Peers = append(fileInfo.Peers, server.host) // peer is null
 			}
 			if filename == CONST_Md5_QUEUE_FILE_NAME {
-				server.AppendToDownloadQueue(fileInfo)
+				server.appendToDownloadQueue(fileInfo)
 			} else {
-				server.AppendToQueue(fileInfo)
+				server.appendToQueue(fileInfo)
 			}
 		}
 	}
@@ -148,7 +148,7 @@ func (server *Service) loadQueueSendToPeer() {
 	} else {
 		for fileInfo := range queue.Iter() {
 			//server.queueFromPeers <- *fileInfo.(*FileInfo)
-			server.AppendToDownloadQueue(fileInfo.(*en.FileInfo))
+			server.appendToDownloadQueue(fileInfo.(*en.FileInfo))
 		}
 	}
 }
@@ -319,7 +319,7 @@ func (server *Service) watchFilesChange() {
 				//}
 				if c.Op == watcher.Create.String() {
 					slog.Info(fmt.Sprintf("Syncfile Add to Queue path:%s", fileInfo.Path+"/"+fileInfo.Name))
-					server.AppendToQueue(c)
+					server.appendToQueue(c)
 					server.saveFileInfoToLevelDB(c.Md5, c, server.ldb)
 				}
 			}
@@ -451,7 +451,7 @@ func (server *Service) repairFileInfoFromFile() {
 				}
 				//slog.Info(fileInfo)
 				slog.Info(filePath, "/", fi.Name())
-				server.AppendToQueue(&fileInfo)
+				server.appendToQueue(&fileInfo)
 				//server.postFileToPeer(&fileInfo)
 				server.saveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
 				//server.SaveFileMd5Log(&fileInfo, CONST_FILE_Md5_FILE_NAME)
@@ -566,7 +566,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 										slog.Error(err)
 										continue
 									}
-									server.AppendToQueue(fileInfo)
+									server.appendToQueue(fileInfo)
 								}
 							}
 							//Update(peer,dateStat)

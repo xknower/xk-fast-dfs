@@ -289,7 +289,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 		if err != nil {
 			if fileInfo.Retry <= retryCount {
 				fileInfo.Retry = fileInfo.Retry + 1
-				server.AppendToQueue(fileInfo)
+				server.appendToQueue(fileInfo)
 			}
 			slog.Error(err, fmt.Sprintf(" path:%s", fileInfo.Path+"/"+fileInfo.Name))
 		}

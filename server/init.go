@@ -29,6 +29,8 @@ var (
 	LARGE_DIR_NAME              = ""
 	STORE_DIR_NAME              = ""
 	LOG_DIR                     = ""
+	AdminIps                    []string
+	CONST_CONF_FILE_NAME        = ""
 )
 
 var (
@@ -106,6 +108,7 @@ func init() {
 	CONST_STAT_FILE_NAME = conf.CONSTStatFileName
 	CONST_SEARCH_FILE_NAME = conf.CONSTSearchFileName
 	CONST_QUEUE_SIZE = conf.CONSTQueueSize
+	CONST_CONF_FILE_NAME = conf.CONSTConfFileName
 	STORE_DIR = conf.DirStore
 	DOCKER_DIR = conf.DirDocker
 	LARGE_DIR = conf.DirLarge
@@ -150,4 +153,5 @@ func init() {
 	writeTimeout = conf.Global().WriteTimeout
 	refreshInterval = conf.Global().RefreshInterval
 	addr = conf.Global().Addr
+	AdminIps = conf.Global().AdminIps
 }

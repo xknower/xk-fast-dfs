@@ -168,3 +168,50 @@ func (server *Service) checkFileExistByInfo(md5s string, fileInfo *en.FileInfo) 
 		return false
 	}
 }
+
+// 跨域访问配置 [https://blog.csdn.net/yanzisu_congcong/article/details/80552155]
+func CrossOrigin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Depth, User-Agent, X-File-Size, X-Requested-With, X-Requested-By, If-Modified-Since, X-File-Name, X-File-Type, Cache-Control, Origin")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+	w.Header().Set("Access-Control-Expose-Headers", "Authorization")
+}
+
+//
+func GetClusterNotPermitMessage(r *http.Request) string {
+	var (
+		message string
+	)
+	message = fmt.Sprintf(CONST_MESSAGE_CLUSTER_IP, util.GetClientIp(r))
+	return message
+}
+
+//
+func IsPeer(r *http.Request) bool {
+	var (
+		ip    string
+		peer  string
+		bflag bool
+	)
+	//return true
+	ip = util.GetClientIp(r)
+	realIp := os.Getenv("GO_FASTDFS_IP")
+	if realIp == "" {
+		realIp = util.GetPulicIP()
+	}
+	if ip == "127.0.0.1" || ip == realIp {
+		return true
+	}
+	if util.Contains(ip, AdminIps) {
+		return true
+	}
+	ip = "http://" + ip
+	bflag = false
+	for _, peer = range peers {
+		if strings.HasPrefix(peer, ip) {
+			bflag = true
+			break
+		}
+	}
+	return bflag
+}

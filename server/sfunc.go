@@ -2,7 +2,6 @@ package server
 
 import (
 	"../en"
-	"../web"
 	"fmt"
 	"github.com/astaxie/beego/httplib"
 	mapset "github.com/deckarep/golang-set"
@@ -36,7 +35,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 	)
 	output = r.FormValue("output")
 	if enableCrossOrigin {
-		web.CrossOrigin(w, r)
+		CrossOrigin(w, r)
 		if r.Method == http.MethodOptions {
 			return
 		}
@@ -503,7 +502,7 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		req := httplib.Get(downloadUrl)
 		req.SetTimeout(time.Second*30, time.Second*time.Duration(timeout))
 		if err = req.ToFile(fpathTmp); err != nil {
-			server.AppendToDownloadQueue(fileInfo) //retry
+			server.appendToDownloadQueue(fileInfo) //retry
 			os.Remove(fpathTmp)
 			slog.Error(err, fpathTmp)
 			return
@@ -520,7 +519,7 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		//small file download
 		data, err = req.Bytes()
 		if err != nil {
-			server.AppendToDownloadQueue(fileInfo) //retry
+			server.appendToDownloadQueue(fileInfo) //retry
 			slog.Error(err)
 			return
 		}
@@ -544,7 +543,7 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		return
 	}
 	if err = req.ToFile(fpathTmp); err != nil {
-		server.AppendToDownloadQueue(fileInfo) //retry
+		server.appendToDownloadQueue(fileInfo) //retry
 		os.Remove(fpathTmp)
 		slog.Error(err)
 		return

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"../conf"
 	"../en"
 	"bytes"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"github.com/sjqzhang/tusd/filestore"
 	dbutil "github.com/syndtr/goleveldb/leveldb/util"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -587,4 +589,71 @@ func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 	fileResult.Src = fileResult.Path
 	fileResult.Scenes = fileInfo.Scene
 	return fileResult
+}
+
+// 重启初始化加载
+// ------------------------------------
+func (server *Service) reload(w http.ResponseWriter, r *http.Request) {
+	var (
+		data   []byte
+		cfg    conf.GlobalConfig
+		result en.JsonResult
+	)
+	result.Status = "fail"
+	err := r.ParseForm()
+	if !IsPeer(r) {
+		w.Write([]byte(GetClusterNotPermitMessage(r)))
+		return
+	}
+	cfgJson := r.FormValue("cfg")
+	action := r.FormValue("action")
+
+	//
+	if action == "get" {
+		result.Data = conf.Global()
+		result.Status = "ok"
+		w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	//
+	if action == "set" {
+		if cfgJson == "" {
+			result.Message = "(error)parameter cfg(json) require"
+			w.Write([]byte(util.JsonEncodePretty(result)))
+			return
+		}
+		if err = json.Unmarshal([]byte(cfgJson), &cfg); err != nil {
+			slog.Error(err)
+			result.Message = err.Error()
+			w.Write([]byte(util.JsonEncodePretty(result)))
+			return
+		}
+		result.Status = "ok"
+		cfgJson = util.JsonEncodePretty(cfg)
+		util.WriteFile(CONST_CONF_FILE_NAME, cfgJson)
+		w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	//
+	if action == "reload" {
+		if data, err = ioutil.ReadFile(CONST_CONF_FILE_NAME); err != nil {
+			result.Message = err.Error()
+			w.Write([]byte(util.JsonEncodePretty(result)))
+			return
+		}
+		if err = json.Unmarshal(data, &cfg); err != nil {
+			result.Message = err.Error()
+			_, err = w.Write([]byte(util.JsonEncodePretty(result)))
+			return
+		}
+		conf.ParseConfig(CONST_CONF_FILE_NAME)
+		//server.initComponent(true)
+		result.Status = "ok"
+		_, err = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	//
+	if action == "" {
+		_, err = w.Write([]byte("(error)action support set(json) get reload"))
+	}
 }
