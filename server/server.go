@@ -70,18 +70,18 @@ func (server *Service) initComponent(isReload bool) {
 	}
 	server.name = name
 
-	// -> 节点名
+	// -> 节点名 peers 手动配置(多个)集群节点
 	rex, _ := regexp.Compile("\\d+\\.\\d+\\.\\d+\\.\\d+")
 	var prs []string
-	for _, peer := range prs {
+	for _, peer := range peers {
 		if util.Contains(ip, rex.FindAllString(peer, -1)) ||
 			util.Contains("127.0.0.1", rex.FindAllString(peer, -1)) {
 			continue
 		}
 		if strings.HasPrefix(peer, "http") {
-			peers = append(peers, peer)
+			prs = append(prs, peer)
 		} else {
-			peers = append(peers, "http://"+peer)
+			prs = append(prs, "http://"+peer)
 		}
 	}
 	peers = prs
