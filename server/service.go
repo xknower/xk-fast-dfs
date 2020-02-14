@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/astaxie/beego/httplib"
 	mapset "github.com/deckarep/golang-set"
-	"github.com/opentracing/opentracing-go/log"
 	"github.com/radovskyb/watcher"
 	slog "github.com/sjqzhang/seelog"
 	dbutil "github.com/syndtr/goleveldb/leveldb/util"
@@ -357,7 +356,7 @@ func (server *Service) loadSearchDict() {
 		slog.Info("Load search dict ....")
 		f, err := os.Open(CONST_SEARCH_FILE_NAME)
 		if err != nil {
-			log.Error(err)
+			slog.Error(err)
 			return
 		}
 		defer f.Close()
@@ -521,7 +520,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 			req := httplib.Get(fmt.Sprintf("%s%s?date=%s&force=%s", peer, server.getRequestURI("sync"), dateStat.Date, "1"))
 			req.SetTimeout(time.Second*5, time.Second*5)
 			if _, err = req.String(); err != nil {
-				log.Error(err)
+				slog.Error(err)
 			}
 			slog.Info(fmt.Sprintf("syn file from %s date %s", peer, dateStat.Date))
 		}
@@ -530,7 +529,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 			req.Param("inner", "1")
 			req.SetTimeout(time.Second*5, time.Second*15)
 			if err = req.ToJSON(&dateStats); err != nil {
-				log.Error(err)
+				slog.Error(err)
 				continue
 			}
 			for _, dateStat := range dateStats {
@@ -551,7 +550,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 								continue
 							}
 							if localSet, err = server.GetMd5sByDate(dateStat.Date, CONST_FILE_Md5_FILE_NAME); err != nil {
-								log.Error(err)
+								slog.Error(err)
 								continue
 							}
 							remoteSet = util.StrToMapSet(md5s, ",")
@@ -565,7 +564,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 							for v := range tmpSet.Iter() {
 								if v != nil {
 									if fileInfo, err = server.getFileInfoFromLevelDB(v.(string)); err != nil {
-										log.Error(err)
+										slog.Error(err)
 										continue
 									}
 									server.AppendToQueue(fileInfo)

@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+const GO_FASTDFS_IP = "GO_FASTDFS_IP"
+const GO_FASTDFS_DIR = "GO_FASTDFS_DIR"
+
 var (
 	//
 	util = &goutil.Common{}
@@ -48,7 +51,7 @@ func init() {
 	}
 
 	// 获取全局变量, 环境变量指定运行目录
-	DirDocker = os.Getenv("GO_FASTDFS_DIR")
+	DirDocker = os.Getenv(GO_FASTDFS_DIR)
 	if DirDocker != "" {
 		if !strings.HasSuffix(DirDocker, "/") {
 			DirDocker = DirDocker + "/"
@@ -59,7 +62,7 @@ func init() {
 	peerId := fmt.Sprintf("%d", util.RandInt(0, 9))
 	if !util.FileExists(CONSTConfFileName) {
 		var ip string
-		if ip = os.Getenv("GO_FASTDFS_IP"); ip == "" {
+		if ip = os.Getenv(GO_FASTDFS_IP); ip == "" {
 			ip = util.GetPulicIP()
 		}
 		peer := "http://" + ip + ":8080"
