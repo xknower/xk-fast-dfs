@@ -145,18 +145,6 @@ func init() {
 		}
 	}
 
-	// 初始化 peer 并输出默认配置文件
-	peerId := fmt.Sprintf("%d", util.RandInt(0, 9))
-	if !util.FileExists(CONSTConfFileName) {
-		var ip string
-		if ip = os.Getenv(GO_FASTDFS_IP); ip == "" {
-			ip = util.GetPulicIP()
-		}
-		peer := "http://" + ip + ":8080"
-		cfg := fmt.Sprintf(CONFIG_JSON, peerId, peer, peer)
-		util.WriteFile(CONSTConfFileName, cfg)
-	}
-
 	// 初始化全局配置变量
 	DirStore = DirDocker + STORE_DIR_NAME
 	DirConf = DirDocker + CONF_DIR_NAME
@@ -193,6 +181,18 @@ func init() {
 		Log.Info("succes init log access")
 	} else {
 		_ = Log.Error(err.Error())
+	}
+
+	// 初始化 peer 并输出默认配置文件
+	peerId := fmt.Sprintf("%d", util.RandInt(0, 9))
+	if !util.FileExists(CONSTConfFileName) {
+		var ip string
+		if ip = os.Getenv(GO_FASTDFS_IP); ip == "" {
+			ip = util.GetPulicIP()
+		}
+		peer := "http://" + ip + ":8080"
+		cfg := fmt.Sprintf(CONFIG_JSON, peerId, peer, peer)
+		util.WriteFile(CONSTConfFileName, cfg)
 	}
 
 	// 加载配置文件初始化配置

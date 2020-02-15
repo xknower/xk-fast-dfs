@@ -100,13 +100,13 @@ func IsPeer(r *http.Request) bool {
 	if ip == "127.0.0.1" || ip == realIp {
 		return true
 	}
-	if util.Contains(ip, AdminIps) {
+	if util.Contains(ip, adminIps) {
 		return true
 	}
 	// 判断是否是非本地集群节点 (Peers 手动配置的及集群节点列表)
 	ip = "http://" + ip
 	flag := false
-	for _, peer := range Peers {
+	for _, peer := range peers {
 		if strings.HasPrefix(peer, ip) {
 			flag = true
 			break
@@ -123,14 +123,14 @@ func analyseFilePathFromRequest(w http.ResponseWriter, r *http.Request) (string,
 		prefix    string
 	)
 	fullPath := r.RequestURI[1:]
-	if strings.HasPrefix(r.RequestURI, "/"+Group+"/") {
-		fullPath = r.RequestURI[len(Group)+2 : len(r.RequestURI)]
+	if strings.HasPrefix(r.RequestURI, "/"+group+"/") {
+		fullPath = r.RequestURI[len(group)+2 : len(r.RequestURI)]
 	}
 	fullPath = strings.Split(fullPath, "?")[0] // just path
 	fullPath = DOCKER_DIR + STORE_DIR_NAME + "/" + fullPath
 	prefix = "/" + LARGE_DIR_NAME + "/"
-	if SupportGroupManage {
-		prefix = "/" + Group + "/" + LARGE_DIR_NAME + "/"
+	if supportGroupManage {
+		prefix = "/" + group + "/" + LARGE_DIR_NAME + "/"
 	}
 	if strings.HasPrefix(r.RequestURI, prefix) {
 		smallPath = fullPath //notice order

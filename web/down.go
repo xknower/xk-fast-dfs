@@ -39,11 +39,11 @@ func (hs *HttpServer) checkDownloadAuth(w http.ResponseWriter, r *http.Request) 
 		return true
 	}
 	// 判断下载是否需要认证, 默认认证不开启, 开启需要设置 认证URL
-	if EnableDownloadAuth && AuthUrl != "" && !IsPeer(r) && !hs.s.CheckAuth(w, r) {
+	if enableDownloadAuth && authUrl != "" && !IsPeer(r) && !hs.s.CheckAuth(w, r) {
 		return false, errors.New("auth fail")
 	}
 	// 判断下载是否需要认证 Token, 默认不认证 Token
-	if DownloadUseToken && !IsPeer(r) {
+	if downloadUseToken && !IsPeer(r) {
 		// 表单中获取 Token
 		token := r.FormValue("token")
 		// 表单中获取时间戳
@@ -52,8 +52,8 @@ func (hs *HttpServer) checkDownloadAuth(w http.ResponseWriter, r *http.Request) 
 			return false, errors.New("unvalid request")
 		}
 		// 下载有效时间
-		maxTimestamp := time.Now().Add(time.Second * time.Duration(DownloadTokenExpire)).Unix()
-		minTimestamp := time.Now().Add(-time.Second * time.Duration(DownloadTokenExpire)).Unix()
+		maxTimestamp := time.Now().Add(time.Second * time.Duration(downloadTokenExpire)).Unix()
+		minTimestamp := time.Now().Add(-time.Second * time.Duration(downloadTokenExpire)).Unix()
 		if ts, err = strconv.ParseInt(timestamp, 10, 64); err != nil {
 			// 验证时间戳 timestamp 无效
 			return false, errors.New("unvalid timestamp")
@@ -83,13 +83,13 @@ func (hs *HttpServer) checkDownloadAuth(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	// 检测是否需要 Google认证
-	if EnableGoogleAuth && !IsPeer(r) {
-		fullPath := r.RequestURI[len(Group)+2 : len(r.RequestURI)]
+	if enableGoogleAuth && !IsPeer(r) {
+		fullPath := r.RequestURI[len(group)+2 : len(r.RequestURI)]
 		fullPath = strings.Split(fullPath, "?")[0] // just path
 		scene = strings.Split(fullPath, "/")[0]
 		code = r.FormValue("code")
 		if secret, ok = hs.s.GetSceneMap().GetValue(scene); ok {
-			if !hs.s.VerifyGoogleCode(secret.(string), code, int64(DownloadTokenExpire/30)) {
+			if !hs.s.VerifyGoogleCode(secret.(string), code, int64(downloadTokenExpire/30)) {
 				return false, errors.New("invalid google code")
 			}
 		}
@@ -111,7 +111,7 @@ func (hs *HttpServer) downloadNotFound(w http.ResponseWriter, r *http.Request) {
 	fullPath, smallPath := analyseFilePathFromRequest(w, r)
 	isDownload := true
 	if r.FormValue("download") == "" {
-		isDownload = DefaultDownload
+		isDownload = defaultDownload
 	}
 	if r.FormValue("download") == "0" {
 		isDownload = false
@@ -122,7 +122,7 @@ func (hs *HttpServer) downloadNotFound(w http.ResponseWriter, r *http.Request) {
 		pathMd5 = util.MD5(fullPath)
 	}
 	// 从集权所有节点中, 根据文件路径查询文件
-	for _, peer = range Peers {
+	for _, peer = range peers {
 		// 检测文件是否存在, 并获取文件信息
 		if fileInfo, err = hs.s.CheckPeerFileExist(peer, pathMd5, fullPath); err != nil {
 			slog.Error(err)
@@ -177,7 +177,7 @@ func (hs *HttpServer) downloadNormalIMGFileByURI(w http.ResponseWriter, r *http.
 	_ = r.ParseForm()
 	isDownload := true
 	if r.FormValue("download") == "" {
-		isDownload = DefaultDownload
+		isDownload = defaultDownload
 	}
 	if r.FormValue("download") == "0" {
 		isDownload = false
@@ -254,7 +254,7 @@ func (hs *HttpServer) downloadSmallFileByURI(w http.ResponseWriter, r *http.Requ
 	_ = r.ParseForm()
 	isDownload := true
 	if r.FormValue("download") == "" {
-		isDownload = DefaultDownload
+		isDownload = defaultDownload
 	}
 	if r.FormValue("download") == "0" {
 		isDownload = false

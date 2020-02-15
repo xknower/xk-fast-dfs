@@ -27,8 +27,8 @@ func (hs *HttpServer) Home(w http.ResponseWriter, r *http.Request) {
 	// [ ""、/ 、 /group 、/group/ -> (跳转到主页 Index)]
 	fmt.Printf(" 请求地址 => %s \n", r.RequestURI)
 	if r.RequestURI == "/" || r.RequestURI == "" ||
-		r.RequestURI == "/"+Group ||
-		r.RequestURI == "/"+Group+"/" {
+		r.RequestURI == "/"+group ||
+		r.RequestURI == "/"+group+"/" {
 		hs.IndexHTML(w, r)
 		return
 	}
@@ -43,10 +43,10 @@ func (hs *HttpServer) IndexHTML(w http.ResponseWriter, r *http.Request) {
 	// 上传页面
 	var uppy = UPPY_HTML
 	uppyFileName := STATIC_DIR + "/uppy.html"
-	if EnableWebUpload {
-		if SupportGroupManage {
-			uploadUrl = fmt.Sprintf("/%s/upload", Group)
-			uploadBigUrl = fmt.Sprintf("/%s%s", Group, CONST_BIG_UPLOAD_PATH_SUFFIX)
+	if enableWebUpload {
+		if supportGroupManage {
+			uploadUrl = fmt.Sprintf("/%s/upload", group)
+			uploadBigUrl = fmt.Sprintf("/%s%s", group, CONST_BIG_UPLOAD_PATH_SUFFIX)
 		}
 		if util.IsExist(uppyFileName) {
 			// 检测上传页面是否存在, 存在使用静态资源文件
@@ -58,7 +58,7 @@ func (hs *HttpServer) IndexHTML(w http.ResponseWriter, r *http.Request) {
 		} else {
 			util.WriteFile(uppyFileName, uppy)
 		}
-		_, _ = fmt.Fprintf(w, fmt.Sprintf(uppy, uploadUrl, DefaultScene, uploadBigUrl))
+		_, _ = fmt.Fprintf(w, fmt.Sprintf(uppy, uploadUrl, defaultScene, uploadBigUrl))
 	} else {
 		// 不支持 Web 页面上传文件
 		_, _ = w.Write([]byte("web upload deny"))
@@ -88,8 +88,8 @@ func (hs *HttpServer) ReportHTML(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// 返回页面
 			html = string(data)
-			if SupportGroupManage {
-				html = strings.Replace(html, "{group}", "/"+Group, 1)
+			if supportGroupManage {
+				html = strings.Replace(html, "{group}", "/"+group, 1)
 			} else {
 				html = strings.Replace(html, "{group}", "", 1)
 			}
@@ -156,7 +156,7 @@ func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if EnableCrossOrigin {
+	if enableCrossOrigin {
 		// 支持跨域下载文件
 		CrossOrigin(w, r)
 	}
@@ -168,7 +168,7 @@ func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
 			hs.downloadNotFound(w, r)
 			return
 		}
-		if !ShowDir && fi.IsDir() {
+		if !showDir && fi.IsDir() {
 			// 路径非文件, 是个目录, 展示目录无权限
 			_, _ = w.Write([]byte("list dir deny"))
 			return
@@ -297,7 +297,7 @@ func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 					Name:      path.Base(fPath),
 					Size:      fi.Size(),
 					Md5:       sum,
-					Peers:     []string{Host},
+					Peers:     []string{host},
 					OffSet:    -1, //very important
 					TimeStamp: fi.ModTime().Unix(),
 				}
@@ -330,7 +330,7 @@ func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if fPath != "" {
-		fPath = strings.Replace(fPath, "/"+Group+"/", STORE_DIR_NAME+"/", 1)
+		fPath = strings.Replace(fPath, "/"+group+"/", STORE_DIR_NAME+"/", 1)
 		md5sum = util.MD5(fPath)
 	}
 	//
@@ -462,16 +462,16 @@ func (hs *HttpServer) RemoveFile(w http.ResponseWriter, r *http.Request) {
 	inner := r.FormValue("inner") // 操作标识
 	result.Status = "fail"
 	// 检测权限
-	if AuthUrl != "" && !hs.s.CheckAuth(w, r) {
+	if authUrl != "" && !hs.s.CheckAuth(w, r) {
 		hs.s.NotPermit(w, r)
 		return
 	}
 	if fPath != "" && md5sum == "" {
-		fPath = strings.Replace(fPath, "/"+Group+"/", STORE_DIR_NAME+"/", 1)
+		fPath = strings.Replace(fPath, "/"+group+"/", STORE_DIR_NAME+"/", 1)
 		md5sum = util.MD5(fPath)
 	}
 	if inner != "1" {
-		for _, peer := range Peers {
+		for _, peer := range peers {
 			delFile := func(peer string, md5sum string, fileInfo *en.FileInfo) {
 				// 遍历集权节点, 构造删除URL, 对集群所有节点进行删除操作
 				delUrl = fmt.Sprintf("%s%s", peer, hs.s.GetRequestURI("delete"))
@@ -581,7 +581,7 @@ func (hs *HttpServer) SyncFileInfo(w http.ResponseWriter, r *http.Request) {
 		filename = fileInfo.ReName
 	}
 	p := strings.Replace(fileInfo.Path, STORE_DIR+"/", "", 1)
-	downloadUrl := fmt.Sprintf("http://%s/%s", r.Host, Group+"/"+p+"/"+filename)
+	downloadUrl := fmt.Sprintf("http://%s/%s", r.Host, group+"/"+p+"/"+filename)
 	slog.Info("SyncFileInfo: ", downloadUrl)
 	_, _ = w.Write([]byte(downloadUrl))
 }
@@ -609,7 +609,7 @@ func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 		isForceUpload = true
 	}
 	if inner != "1" {
-		for _, peer := range Peers {
+		for _, peer := range peers {
 			//
 			req := httplib.Post(peer + hs.s.GetRequestURI("sync"))
 			req.Param("force", force)
@@ -779,13 +779,13 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// 配置信息
-	sts["Fs.AutoRepair"] = AutoRepair
+	sts["Fs.AutoRepair"] = autoRepair
 	sts["Fs.QueueUpload"] = len(hs.s.GetQueueUpload())
-	sts["Fs.RefreshInterval"] = RefreshInterval
-	sts["Fs.Peers"] = Peers
+	sts["Fs.RefreshInterval"] = refreshInterval
+	sts["Fs.Peers"] = peers
 	sts["Fs.Local"] = hs.s.GetHost()
 	sts["Fs.FileStats"] = hs.getStat()
-	sts["Fs.ShowDir"] = ShowDir
+	sts["Fs.ShowDir"] = showDir
 	sts["Sys.NumGoroutine"] = runtime.NumGoroutine()
 	sts["Sys.NumCpu"] = runtime.NumCPU()
 	sts["Sys.Alloc"] = memStat.Alloc
@@ -869,7 +869,7 @@ func (hs *HttpServer) RepairStatWeb(w http.ResponseWriter, r *http.Request) {
 		date = util.GetToDay()
 	}
 	if inner != "1" {
-		for _, peer := range Peers {
+		for _, peer := range peers {
 			//
 			req := httplib.Post(peer + hs.s.GetRequestURI("repair_stat"))
 			req.Param("inner", "1")
@@ -895,7 +895,7 @@ func (hs *HttpServer) RepairFileInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	//
-	if !EnableMigrate {
+	if !enableMigrate {
 		_, _ = w.Write([]byte("please set enable_migrate=true"))
 		return
 	}
@@ -928,7 +928,7 @@ func (hs *HttpServer) BackUp(w http.ResponseWriter, r *http.Request) {
 	}
 	if inner != "1" {
 		// 针对集群所有节点处理
-		for _, peer := range Peers {
+		for _, peer := range peers {
 			backUp := func(peer string, date string) {
 				url := fmt.Sprintf("%s%s", peer, hs.s.GetRequestURI("backup"))
 				req := httplib.Post(url)

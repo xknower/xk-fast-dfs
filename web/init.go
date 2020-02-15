@@ -38,61 +38,64 @@ var (
 )
 
 var (
-	Group               string
-	EnableCrossOrigin   bool
-	ShowDir             bool
-	EnableDownloadAuth  bool
-	AuthUrl             string
-	DownloadUseToken    bool
-	DownloadTokenExpire int
-	DefaultDownload     bool
-	EnableGoogleAuth    bool
-	Peers               []string
-	EnableMigrate       bool
-	EnableWebUpload     bool
-	SupportGroupManage  bool
-	DefaultScene        string
-	Host                string
-	AutoRepair          bool
-	RefreshInterval     int
-	AdminIps            []string
-	Addr                string
-	ReadTimeout         int
-	ReadHeaderTimeout   int
-	WriteTimeout        int
-	IdleTimeout         int
+	//
+	host                string
+	addr                string
+	group               string
+	peers               []string
+	defaultScene        string
+	enableCrossOrigin   bool
+	enableGoogleAuth    bool
+	enableMigrate       bool
+	supportGroupManage  bool
+	authUrl             string
+	downloadTokenExpire int
+	refreshInterval     int
+	autoRepair          bool
+	readTimeout         int
+	writeTimeout        int
+
+	//
+	adminIps           []string
+	enableWebUpload    bool
+	enableDownloadAuth bool
+	showDir            bool
+	defaultDownload    bool
+	downloadUseToken   bool
+	readHeaderTimeout  int
+	idleTimeout        int
 )
 
 //
 var staticHandler http.Handler
 
 func init() {
-	Group = conf.Global().Group
-	EnableCrossOrigin = conf.Global().EnableCrossOrigin
-	ShowDir = conf.Global().ShowDir
-	EnableDownloadAuth = conf.Global().EnableDownloadAuth
-	AuthUrl = conf.Global().AuthUrl
-	DownloadUseToken = conf.Global().DownloadUseToken
-	DownloadTokenExpire = conf.Global().DownloadTokenExpire
-	DefaultDownload = conf.Global().DefaultDownload
-	EnableGoogleAuth = conf.Global().EnableGoogleAuth
-	Peers = conf.Global().Peers
-	EnableMigrate = conf.Global().EnableMigrate
-	EnableWebUpload = conf.Global().EnableWebUpload
-	SupportGroupManage = conf.Global().SupportGroupManage
-	DefaultScene = conf.Global().DefaultScene
-	Host = conf.Global().Host
-	AutoRepair = conf.Global().AutoRepair
-	RefreshInterval = conf.Global().RefreshInterval
-	AdminIps = conf.Global().AdminIps
-	Addr = conf.Global().Addr
-	ReadTimeout = conf.Global().ReadTimeout
-	ReadHeaderTimeout = conf.Global().ReadHeaderTimeout
-	WriteTimeout = conf.Global().WriteTimeout
-	IdleTimeout = conf.Global().IdleTimeout
+	group = conf.Global().Group
+	enableCrossOrigin = conf.Global().EnableCrossOrigin
+	showDir = conf.Global().ShowDir
+	enableDownloadAuth = conf.Global().EnableDownloadAuth
+	authUrl = conf.Global().AuthUrl
+	downloadUseToken = conf.Global().DownloadUseToken
+	downloadTokenExpire = conf.Global().DownloadTokenExpire
+	defaultDownload = conf.Global().DefaultDownload
+	enableGoogleAuth = conf.Global().EnableGoogleAuth
+	peers = conf.Global().Peers
+	enableMigrate = conf.Global().EnableMigrate
+	enableWebUpload = conf.Global().EnableWebUpload
+	supportGroupManage = conf.Global().SupportGroupManage
+	defaultScene = conf.Global().DefaultScene
+	host = conf.Global().Host
+	autoRepair = conf.Global().AutoRepair
+	refreshInterval = conf.Global().RefreshInterval
+	adminIps = conf.Global().AdminIps
+	addr = conf.Global().Addr
+	readTimeout = conf.Global().ReadTimeout
+	readHeaderTimeout = conf.Global().ReadHeaderTimeout
+	writeTimeout = conf.Global().WriteTimeout
+	idleTimeout = conf.Global().IdleTimeout
 
-	if SupportGroupManage {
-		staticHandler = http.StripPrefix("/"+Group+"/", http.FileServer(http.Dir(STORE_DIR)))
+	if supportGroupManage {
+		staticHandler = http.StripPrefix("/"+group+"/", http.FileServer(http.Dir(STORE_DIR)))
 	} else {
 		staticHandler = http.StripPrefix("/", http.FileServer(http.Dir(STORE_DIR)))
 	}

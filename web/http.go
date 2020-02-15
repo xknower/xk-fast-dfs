@@ -42,7 +42,7 @@ func (hh *HttpHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 		}
 	}()
 	// 是否允许跨域访问
-	if EnableCrossOrigin {
+	if enableCrossOrigin {
 		CrossOrigin(res, req)
 	}
 	//
@@ -59,14 +59,14 @@ func (hs *HttpServer) initHttpServer(route string) {
 	hs.initHandler(route)
 
 	//
-	fmt.Println("Listen on " + Addr)
+	fmt.Println("Listen on " + addr)
 	srv := &http.Server{
-		Addr:              Addr,
+		Addr:              addr,
 		Handler:           &HttpHandler{hs},
-		ReadTimeout:       time.Duration(ReadTimeout) * time.Second,
-		ReadHeaderTimeout: time.Duration(ReadHeaderTimeout) * time.Second,
-		WriteTimeout:      time.Duration(WriteTimeout) * time.Second,
-		IdleTimeout:       time.Duration(IdleTimeout) * time.Second,
+		ReadTimeout:       time.Duration(readTimeout) * time.Second,
+		ReadHeaderTimeout: time.Duration(readHeaderTimeout) * time.Second,
+		WriteTimeout:      time.Duration(writeTimeout) * time.Second,
+		IdleTimeout:       time.Duration(idleTimeout) * time.Second,
 	}
 
 	// 开启HTTP服务, (阻塞主线程)
@@ -104,7 +104,7 @@ func (hs *HttpServer) initHandler(route string) {
 	// 上传文件
 	http.HandleFunc(fmt.Sprintf("%s/upload", route), hs.Upload)
 	// 下载文件
-	http.HandleFunc(fmt.Sprintf("/%s/", Group), hs.Download)
+	http.HandleFunc(fmt.Sprintf("/%s/", group), hs.Download)
 
 	// 检测并查询文件信息
 	http.HandleFunc(fmt.Sprintf("%s/check_files_exist", route), hs.CheckFilesExist)
