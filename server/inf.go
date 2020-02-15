@@ -69,10 +69,12 @@ func (server Service) AppendToDownloadQueue(fileInfo *en.FileInfo) {
 	server.appendToDownloadQueue(fileInfo)
 }
 
+// 上传文件
 func (server Service) Upload(w http.ResponseWriter, r *http.Request) {
 	server.upload(w, r)
 }
 
+// 从集群(查找到文件的节点 peer)中下载文件
 func (server Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	server.downloadFromPeer(peer, fileInfo)
 }
@@ -86,13 +88,14 @@ func (server Service) GetMd5sByDate(date string, filename string) (mapset.Set, e
 }
 
 func (server Service) NotPermit(w http.ResponseWriter, r *http.Request) {
-	server.NotPermit(w, r)
+	server.notPermit(w, r)
 }
 
 func (server Service) CheckAuth(w http.ResponseWriter, r *http.Request) bool {
 	return server.checkAuth(w, r)
 }
 
+// 检测文件是否存在, 并获取文件信息
 func (server Service) CheckPeerFileExist(peer string, md5sum string, fpath string) (*en.FileInfo, error) {
 	return server.checkPeerFileExist(peer, md5sum, fpath)
 }

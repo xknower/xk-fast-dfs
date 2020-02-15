@@ -1,19 +1,23 @@
 package en
 
+// 文件结构定义
+// ---------- ---------- ----------
 type FileInfo struct {
-	Name      string   `json:"name"`
-	ReName    string   `json:"rename"`
-	Path      string   `json:"path"`
-	Md5       string   `json:"md5"`
-	Size      int64    `json:"size"`
-	Peers     []string `json:"peers"`
+	Name      string   `json:"name"`   // 文件名称
+	ReName    string   `json:"rename"` // 文件完整信息名称(主要信息组成)
+	Path      string   `json:"path"`   // 文件路径
+	Md5       string   `json:"md5"`    // 文件标识, 文件(路径)Hash
+	Size      int64    `json:"size"`   // 文件大小
+	Peers     []string `json:"peers"`  // 文件存在的集群节点
 	Scene     string   `json:"scene"`
-	TimeStamp int64    `json:"timeStamp"`
-	OffSet    int64    `json:"offset"`
+	TimeStamp int64    `json:"timeStamp"` // 文件时间戳
+	OffSet    int64    `json:"offset"`    //
 	Retry     int
 	Op        string
 }
 
+// 文件操作日志结构定义
+// ---------- ---------- ----------
 type FileLog struct {
 	FileInfo *FileInfo
 	FileName string

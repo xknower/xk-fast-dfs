@@ -21,28 +21,36 @@ type Server interface {
 	GetQueueToPeers() chan FileInfo
 	GetQueueFileLog() chan *FileLog
 
+	// 重新加载后台服务
 	Reload(w http.ResponseWriter, r *http.Request)
+
+	//
 	AppendToQueue(fileInfo *FileInfo)
 	AppendToDownloadQueue(fileInfo *FileInfo)
+
+	// 上传文件
 	Upload(w http.ResponseWriter, r *http.Request)
-	DownloadFromPeer(peer string, fileInfo *FileInfo)
 
-	GetRequestURI(action string) string
-	GetMd5sByDate(date string, filename string) (mapset.Set, error)
-	NotPermit(w http.ResponseWriter, r *http.Request)
-	CheckAuth(w http.ResponseWriter, r *http.Request) bool
+	// 文件下载
+	DownloadFromPeer(peer string, fileInfo *FileInfo)                               // 从集群(查找到文件的节点 peer)中下载文件
+	NotPermit(w http.ResponseWriter, r *http.Request)                               // 返回 401 , 没有访问权限
+	CheckAuth(w http.ResponseWriter, r *http.Request) bool                          //
+	CheckPeerFileExist(peer string, md5sum string, fpath string) (*FileInfo, error) // 检测文件是否存在, 并获取文件信息
+	GetFileInfoFromLevelDB(key string) (*FileInfo, error)                           // 从数据库中查询文件
 	VerifyGoogleCode(secret string, code string, discrepancy int64) bool
-	CheckPeerFileExist(peer string, md5sum string, fpath string) (*FileInfo, error)
-	CheckFileAndSendToPeer(date string, filename string, isForceUpload bool)
 
-	GetFileInfoFromLevelDB(key string) (*FileInfo, error)
-	SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB) (*FileInfo, error)
-	SaveFileMd5Log(fileInfo *FileInfo, filename string)
-	BackUpMetaDataByDate(date string)
-	RemoveKeyFromLevelDB(key string, db *leveldb.DB) error
+	RemoveKeyFromLevelDB(key string, db *leveldb.DB) error                                   // 从数据库删除文件信息
+	SaveFileInfoToLevelDB(key string, fileInfo *FileInfo, db *leveldb.DB) (*FileInfo, error) // 保存文件信息到数据库
+	SaveFileMd5Log(fileInfo *FileInfo, filename string)                                      // 保存文件日志信息数据
+	CheckFileAndSendToPeer(date string, filename string, isForceUpload bool)
+	//
 	AutoRepair(forceRepair bool)
 	RepairStatByDate(date string) StatDateFileInfo
 	RepairFileInfoFromFile()
+	BackUpMetaDataByDate(date string)
+
+	GetRequestURI(action string) string
+	GetMd5sByDate(date string, filename string) (mapset.Set, error)
 }
 
 // 服务端实现

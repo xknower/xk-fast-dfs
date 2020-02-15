@@ -2,80 +2,184 @@ package web
 
 import (
 	"../en"
-	"bytes"
-	"errors"
 	"fmt"
 	"github.com/astaxie/beego/httplib"
 	mapset "github.com/deckarep/golang-set"
-	"github.com/nfnt/resize"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sjqzhang/googleAuthenticator"
 	slog "github.com/sjqzhang/seelog"
-	"image"
-	"image/jpeg"
-	"image/png"
 	"io"
 	"io/ioutil"
 	random "math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
 
 //
 func (hs *HttpServer) Home(w http.ResponseWriter, r *http.Request) {
+	// [ ""、/ 、 /group 、/group/ -> (跳转到主页 Index)]
+	fmt.Printf(" 请求地址 => %s \n", r.RequestURI)
+	if r.RequestURI == "/" || r.RequestURI == "" ||
+		r.RequestURI == "/"+Group ||
+		r.RequestURI == "/"+Group+"/" {
+		hs.IndexHTML(w, r)
+		return
+	}
 	w.WriteHeader(200)
 	return
 }
 
-//
-func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
+// 上传页面
+func (hs *HttpServer) IndexHTML(w http.ResponseWriter, r *http.Request) {
+	var uploadUrl = "/upload"
+	var uploadBigUrl = CONST_BIG_UPLOAD_PATH_SUFFIX
+	// 上传页面
+	var uppy = UPPY_HTML
+	uppyFileName := STATIC_DIR + "/uppy.html"
+	if EnableWebUpload {
+		if SupportGroupManage {
+			uploadUrl = fmt.Sprintf("/%s/upload", Group)
+			uploadBigUrl = fmt.Sprintf("/%s%s", Group, CONST_BIG_UPLOAD_PATH_SUFFIX)
+		}
+		if util.IsExist(uppyFileName) {
+			// 检测上传页面是否存在, 存在使用静态资源文件
+			if data, err := util.ReadBinFile(uppyFileName); err != nil {
+				_ = slog.Error(err)
+			} else {
+				uppy = string(data)
+			}
+		} else {
+			util.WriteFile(uppyFileName, uppy)
+		}
+		_, _ = fmt.Fprintf(w, fmt.Sprintf(uppy, uploadUrl, DefaultScene, uploadBigUrl))
+	} else {
+		// 不支持 Web 页面上传文件
+		_, _ = w.Write([]byte("web upload deny"))
+	}
+}
+
+// 报表页面
+func (hs *HttpServer) ReportHTML(w http.ResponseWriter, r *http.Request) {
 	var (
-		err       error
-		ok        bool
-		fullpath  string
-		smallPath string
-		fi        os.FileInfo
+		result en.JsonResult
+		html   string
 	)
-	// redirect to upload
-	if r.RequestURI == "/" || r.RequestURI == "" ||
-		r.RequestURI == "/"+Group ||
-		r.RequestURI == "/"+Group+"/" {
-		hs.Index(w, r)
+	if !IsPeer(r) {
+		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
+	result.Status = "ok"
+	_ = r.ParseForm()
+	//
+	reportFileName := STATIC_DIR + "/report.html"
+	if util.IsExist(reportFileName) {
+		if data, err := util.ReadBinFile(reportFileName); err != nil {
+			_ = slog.Error(err)
+			result.Message = err.Error()
+			_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+			return
+		} else {
+			// 返回页面
+			html = string(data)
+			if SupportGroupManage {
+				html = strings.Replace(html, "{group}", "/"+Group, 1)
+			} else {
+				html = strings.Replace(html, "{group}", "", 1)
+			}
+			_, _ = w.Write([]byte(html))
+			return
+		}
+	} else {
+		_, _ = w.Write([]byte(fmt.Sprintf("%s is not found", reportFileName)))
+	}
+}
+
+// 上传文件
+func (hs *HttpServer) Upload(w http.ResponseWriter, r *http.Request) {
+	var (
+		err    error
+		fpTmp  *os.File
+		fpBody *os.File
+	)
+	if r.Method == http.MethodGet {
+		// 上传 fast md5, 上传文件必须使用 POST
+		hs.s.Upload(w, r)
+		return
+	}
+	// 临时上传目录
+	folder := STORE_DIR + "/_tmp/" + time.Now().Format("20060102")
+	_ = os.MkdirAll(folder, 0777)
+	fn := folder + "/" + util.GetUUID() // 随机文件名
+	defer func() {
+		_ = os.Remove(fn)
+	}()
+	fpTmp, err = os.OpenFile(fn, os.O_RDWR|os.O_CREATE, 0777)
+	if err != nil {
+		_ = slog.Error(err)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	defer fpTmp.Close()
+	// 上传文件保存到本地节点
+	if _, err = io.Copy(fpTmp, r.Body); err != nil {
+		_ = slog.Error(err)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	fpBody, err = os.Open(fn)
+	r.Body = fpBody
+	// 上传文件到集群 -> 文件加入到上传队列, 等待处理完毕
+	done := make(chan bool, 1)
+	hs.s.GetQueueUpload() <- en.WrapReqResp{&w, r, done}
+	<-done
+}
+
+// 下载文件
+func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
+	var (
+		err error
+		ok  bool
+		fi  os.FileInfo
+	)
+
+	// 检测是否有下载权限
 	if ok, err = hs.checkDownloadAuth(w, r); !ok {
-		slog.Error(err)
+		_ = slog.Error(err)
 		hs.s.NotPermit(w, r)
 		return
 	}
 
 	if EnableCrossOrigin {
+		// 支持跨域下载文件
 		CrossOrigin(w, r)
 	}
-	fullpath, smallPath = hs.getFilePathFromRequest(w, r)
+	// 获取文件路径
+	fullPath, smallPath := analyseFilePathFromRequest(w, r)
 	if smallPath == "" {
-		if fi, err = os.Stat(fullpath); err != nil {
+		if fi, err = os.Stat(fullPath); err != nil {
+			// 下载文件
 			hs.downloadNotFound(w, r)
 			return
 		}
 		if !ShowDir && fi.IsDir() {
-			w.Write([]byte("list dir deny"))
+			// 路径非文件, 是个目录, 展示目录无权限
+			_, _ = w.Write([]byte("list dir deny"))
 			return
 		}
+		// 下载一般文件 -> 图片
 		//staticHandler.ServeHTTP(w, r)
-		hs.downloadNormalFileByURI(w, r)
+		_, _ = hs.downloadNormalIMGFileByURI(w, r)
 		return
 	}
 	if smallPath != "" {
+		// 使用简短路径, 下载文件
 		if ok, err = hs.downloadSmallFileByURI(w, r); !ok {
 			hs.downloadNotFound(w, r)
 			return
@@ -84,546 +188,104 @@ func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (hs *HttpServer) checkDownloadAuth(w http.ResponseWriter, r *http.Request) (bool, error) {
-	var (
-		err          error
-		maxTimestamp int64
-		minTimestamp int64
-		ts           int64
-		token        string
-		timestamp    string
-		fullpath     string
-		smallPath    string
-		pathMd5      string
-		fileInfo     *en.FileInfo
-		scene        string
-		secret       interface{}
-		code         string
-		ok           bool
-	)
-	CheckToken := func(token string, md5sum string, timestamp string) bool {
-		if util.MD5(md5sum+timestamp) != token {
-			return false
-		}
-		return true
-	}
-	if EnableDownloadAuth && AuthUrl != "" && !IsPeer(r) && !hs.s.CheckAuth(w, r) {
-		return false, errors.New("auth fail")
-	}
-	if DownloadUseToken && !IsPeer(r) {
-		token = r.FormValue("token")
-		timestamp = r.FormValue("timestamp")
-		if token == "" || timestamp == "" {
-			return false, errors.New("unvalid request")
-		}
-		maxTimestamp = time.Now().Add(time.Second *
-			time.Duration(DownloadTokenExpire)).Unix()
-		minTimestamp = time.Now().Add(-time.Second *
-			time.Duration(DownloadTokenExpire)).Unix()
-		if ts, err = strconv.ParseInt(timestamp, 10, 64); err != nil {
-			return false, errors.New("unvalid timestamp")
-		}
-		if ts > maxTimestamp || ts < minTimestamp {
-			return false, errors.New("timestamp expire")
-		}
-		fullpath, smallPath = hs.getFilePathFromRequest(w, r)
-		if smallPath != "" {
-			pathMd5 = util.MD5(smallPath)
-		} else {
-			pathMd5 = util.MD5(fullpath)
-		}
-		if fileInfo, err = hs.s.GetFileInfoFromLevelDB(pathMd5); err != nil {
-			// TODO
-		} else {
-			ok := CheckToken(token, fileInfo.Md5, timestamp)
-			if !ok {
-				return ok, errors.New("unvalid token")
-			}
-			return ok, nil
-		}
-	}
-	if EnableGoogleAuth && !IsPeer(r) {
-		fullpath = r.RequestURI[len(Group)+2 : len(r.RequestURI)]
-		fullpath = strings.Split(fullpath, "?")[0] // just path
-		scene = strings.Split(fullpath, "/")[0]
-		code = r.FormValue("code")
-		if secret, ok = hs.s.GetSceneMap().GetValue(scene); ok {
-			if !hs.s.VerifyGoogleCode(secret.(string), code, int64(DownloadTokenExpire/30)) {
-				return false, errors.New("invalid google code")
-			}
-		}
-	}
-	return true, nil
-}
-
-func (hs *HttpServer) downloadSmallFileByURI(w http.ResponseWriter, r *http.Request) (bool, error) {
-	var (
-		err        error
-		data       []byte
-		isDownload bool
-		imgWidth   int
-		imgHeight  int
-		width      string
-		height     string
-		notFound   bool
-	)
-	r.ParseForm()
-	isDownload = true
-	if r.FormValue("download") == "" {
-		isDownload = DefaultDownload
-	}
-	if r.FormValue("download") == "0" {
-		isDownload = false
-	}
-	width = r.FormValue("width")
-	height = r.FormValue("height")
-	if width != "" {
-		imgWidth, err = strconv.Atoi(width)
-		if err != nil {
-			slog.Error(err)
-		}
-	}
-	if height != "" {
-		imgHeight, err = strconv.Atoi(height)
-		if err != nil {
-			slog.Error(err)
-		}
-	}
-	data, notFound, err = hs.getSmallFileByURI(w, r)
-	_ = notFound
-	if data != nil && string(data[0]) == "1" {
-		if isDownload {
-			hs.setDownloadHeader(w, r)
-		}
-		if imgWidth != 0 || imgHeight != 0 {
-			hs.resizeImageByBytes(w, data[1:], uint(imgWidth), uint(imgHeight))
-			return true, nil
-		}
-		w.Write(data[1:])
-		return true, nil
-	}
-	return false, errors.New("not found")
-}
-
-func (hs *HttpServer) setDownloadHeader(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment")
-}
-
-func (hs *HttpServer) getSmallFileByURI(w http.ResponseWriter, r *http.Request) ([]byte, bool, error) {
-	var (
-		err      error
-		data     []byte
-		offset   int64
-		length   int
-		fullpath string
-		info     os.FileInfo
-	)
-	fullpath, _ = hs.getFilePathFromRequest(w, r)
-	if _, offset, length, err = hs.parseSmallFile(r.RequestURI); err != nil {
-		return nil, false, err
-	}
-	if info, err = os.Stat(fullpath); err != nil {
-		return nil, false, err
-	}
-	if info.Size() < offset+int64(length) {
-		return nil, true, errors.New("noFound")
-	} else {
-		data, err = util.ReadFileByOffSet(fullpath, offset, length)
-		if err != nil {
-			return nil, false, err
-		}
-		return data, false, err
-	}
-}
-
-func (hs *HttpServer) parseSmallFile(filename string) (string, int64, int, error) {
-	var (
-		err    error
-		offset int64
-		length int
-	)
-	err = errors.New("unvalid small file")
-	if len(filename) < 3 {
-		return filename, -1, -1, err
-	}
-	if strings.Contains(filename, "/") {
-		filename = filename[strings.LastIndex(filename, "/")+1:]
-	}
-	pos := strings.Split(filename, ",")
-	if len(pos) < 3 {
-		return filename, -1, -1, err
-	}
-	offset, err = strconv.ParseInt(pos[1], 10, 64)
-	if err != nil {
-		return filename, -1, -1, err
-	}
-	if length, err = strconv.Atoi(pos[2]); err != nil {
-		return filename, offset, -1, err
-	}
-	if length > CONST_SMALL_FILE_SIZE || offset < 0 {
-		err = errors.New("invalid filesize or offset")
-		return filename, -1, -1, err
-	}
-	return pos[0], offset, length, nil
-}
-
-func (hs *HttpServer) resizeImageByBytes(w http.ResponseWriter, data []byte, width, height uint) {
-	var (
-		img     image.Image
-		err     error
-		imgType string
-	)
-	reader := bytes.NewReader(data)
-	img, imgType, err = image.Decode(reader)
-	if err != nil {
-		slog.Error(err)
-		return
-	}
-	img = resize.Resize(width, height, img, resize.Lanczos3)
-	if imgType == "jpg" || imgType == "jpeg" {
-		jpeg.Encode(w, img, nil)
-	} else if imgType == "png" {
-		png.Encode(w, img)
-	} else {
-		w.Write(data)
-	}
-}
-
-func (hs *HttpServer) downloadNotFound(w http.ResponseWriter, r *http.Request) {
-	var (
-		err        error
-		fullpath   string
-		smallPath  string
-		isDownload bool
-		pathMd5    string
-		peer       string
-		fileInfo   *en.FileInfo
-	)
-	fullpath, smallPath = hs.getFilePathFromRequest(w, r)
-	isDownload = true
-	if r.FormValue("download") == "" {
-		isDownload = DefaultDownload
-	}
-	if r.FormValue("download") == "0" {
-		isDownload = false
-	}
-	if smallPath != "" {
-		pathMd5 = util.MD5(smallPath)
-	} else {
-		pathMd5 = util.MD5(fullpath)
-	}
-	for _, peer = range Peers {
-		if fileInfo, err = hs.s.CheckPeerFileExist(peer, pathMd5, fullpath); err != nil {
-			slog.Error(err)
-			continue
-		}
-		if fileInfo.Md5 != "" {
-			go hs.s.DownloadFromPeer(peer, fileInfo)
-			//http.Redirect(w, r, peer+r.RequestURI, 302)
-			if isDownload {
-				hs.setDownloadHeader(w, r)
-			}
-			hs.downloadFileToResponse(peer+r.RequestURI, w, r)
-			return
-		}
-	}
-	w.WriteHeader(404)
-	return
-}
-
-func (hs *HttpServer) downloadFileToResponse(url string, w http.ResponseWriter, r *http.Request) {
-	var (
-		err  error
-		req  *httplib.BeegoHTTPRequest
-		resp *http.Response
-	)
-	req = httplib.Get(url)
-	req.SetTimeout(time.Second*20, time.Second*600)
-	resp, err = req.DoRequest()
-	if err != nil {
-		slog.Error(err)
-	}
-	defer resp.Body.Close()
-	_, err = io.Copy(w, resp.Body)
-	if err != nil {
-		slog.Error(err)
-	}
-}
-
-func (hs *HttpServer) downloadNormalFileByURI(w http.ResponseWriter, r *http.Request) (bool, error) {
-	var (
-		err        error
-		isDownload bool
-		imgWidth   int
-		imgHeight  int
-		width      string
-		height     string
-	)
-	r.ParseForm()
-	isDownload = true
-	if r.FormValue("download") == "" {
-		isDownload = DefaultDownload
-	}
-	if r.FormValue("download") == "0" {
-		isDownload = false
-	}
-	width = r.FormValue("width")
-	height = r.FormValue("height")
-	if width != "" {
-		imgWidth, err = strconv.Atoi(width)
-		if err != nil {
-			slog.Error(err)
-		}
-	}
-	if height != "" {
-		imgHeight, err = strconv.Atoi(height)
-		if err != nil {
-			slog.Error(err)
-		}
-	}
-	if isDownload {
-		hs.setDownloadHeader(w, r)
-	}
-	fullpath, _ := hs.getFilePathFromRequest(w, r)
-	if imgWidth != 0 || imgHeight != 0 {
-		hs.resizeImage(w, fullpath, uint(imgWidth), uint(imgHeight))
-		return true, nil
-	}
-	staticHandler.ServeHTTP(w, r)
-	return true, nil
-}
-
-func (hs *HttpServer) resizeImage(w http.ResponseWriter, fullpath string, width, height uint) {
-	var (
-		img     image.Image
-		err     error
-		imgType string
-		file    *os.File
-	)
-	file, err = os.Open(fullpath)
-	if err != nil {
-		slog.Error(err)
-		return
-	}
-	img, imgType, err = image.Decode(file)
-	if err != nil {
-		slog.Error(err)
-		return
-	}
-	file.Close()
-	img = resize.Resize(width, height, img, resize.Lanczos3)
-	if imgType == "jpg" || imgType == "jpeg" {
-		jpeg.Encode(w, img, nil)
-	} else if imgType == "png" {
-		png.Encode(w, img)
-	} else {
-		file.Seek(0, 0)
-		io.Copy(w, file)
-	}
-}
-
-func (hs *HttpServer) getFilePathFromRequest(w http.ResponseWriter, r *http.Request) (string, string) {
-	var (
-		err       error
-		fullpath  string
-		smallPath string
-		prefix    string
-	)
-	fullpath = r.RequestURI[1:]
-	if strings.HasPrefix(r.RequestURI, "/"+Group+"/") {
-		fullpath = r.RequestURI[len(Group)+2 : len(r.RequestURI)]
-	}
-	fullpath = strings.Split(fullpath, "?")[0] // just path
-	fullpath = DOCKER_DIR + STORE_DIR_NAME + "/" + fullpath
-	prefix = "/" + LARGE_DIR_NAME + "/"
-	if SupportGroupManage {
-		prefix = "/" + Group + "/" + LARGE_DIR_NAME + "/"
-	}
-	if strings.HasPrefix(r.RequestURI, prefix) {
-		smallPath = fullpath //notice order
-		fullpath = strings.Split(fullpath, ",")[0]
-	}
-	if fullpath, err = url.PathUnescape(fullpath); err != nil {
-		slog.Error(err)
-	}
-	return fullpath, smallPath
-}
-
-//
-func (hs *HttpServer) Index(w http.ResponseWriter, r *http.Request) {
-	var (
-		uploadUrl    string
-		uploadBigUrl string
-		uppy         string
-	)
-	uploadUrl = "/upload"
-	uploadBigUrl = CONST_BIG_UPLOAD_PATH_SUFFIX
-	if EnableWebUpload {
-		if SupportGroupManage {
-			uploadUrl = fmt.Sprintf("/%s/upload", Group)
-			uploadBigUrl = fmt.Sprintf("/%s%s", Group, CONST_BIG_UPLOAD_PATH_SUFFIX)
-		}
-		uppy = `<html>
-			  
-			  <head>
-				<meta charset="utf-8" />
-				<title>go-fastdfs</title>
-				<style>form { bargin } .form-line { display:block;height: 30px;margin:8px; } #stdUpload {background: #fafafa;border-radius: 10px;width: 745px; }</style>
-				<link href="https://transloadit.edgly.net/releases/uppy/v0.30.0/dist/uppy.min.css" rel="stylesheet"></head>
-			  
-			  <body>
-                <div>标准上传(强列建议使用这种方式)</div>
-				<div id="stdUpload">
-				  
-				  <form action="%s" method="post" enctype="multipart/form-data">
-					<span class="form-line">文件(file):
-					  <input type="file" id="file" name="file" /></span>
-					<span class="form-line">场景(scene):
-					  <input type="text" id="scene" name="scene" value="%s" /></span>
-					<span class="form-line">文件名(filename):
-					  <input type="text" id="filename" name="filename" value="" /></span>
-					<span class="form-line">输出(output):
-					  <input type="text" id="output" name="output" value="json" /></span>
-					<span class="form-line">自定义路径(path):
-					  <input type="text" id="path" name="path" value="" /></span>
-	              <span class="form-line">google认证码(code):
-					  <input type="text" id="code" name="code" value="" /></span>
-					 <span class="form-line">自定义认证(auth_token):
-					  <input type="text" id="auth_token" name="auth_token" value="" /></span>
-					<input type="submit" name="submit" value="upload" />
-                </form>
-				</div>
-                 <div>断点续传（如果文件很大时可以考虑）</div>
-				<div>
-				 
-				  <div id="drag-drop-area"></div>
-				  <script src="https://transloadit.edgly.net/releases/uppy/v0.30.0/dist/uppy.min.js"></script>
-				  <script>var uppy = Uppy.Core().use(Uppy.Dashboard, {
-					  inline: true,
-					  target: '#drag-drop-area'
-					}).use(Uppy.Tus, {
-					  endpoint: '%s'
-					})
-					uppy.on('complete', (result) => {
-					 // console.log(result) console.log('Upload complete! We’ve uploaded these files:', result.successful)
-					})
-					//uppy.setMeta({ auth_token: '9ee60e59-cb0f-4578-aaba-29b9fc2919ca',callback_url:'http://127.0.0.1/callback' ,filename:'自定义文件名','path':'自定义path',scene:'自定义场景' })//这里是传递上传的认证参数,callback_url参数中 id为文件的ID,info 文转的基本信息json
-					uppy.setMeta({ auth_token: '9ee60e59-cb0f-4578-aaba-29b9fc2919ca',callback_url:'http://127.0.0.1/callback'})//自定义参数与普通上传类似（虽然支持自定义，建议不要自定义，海量文件情况下，自定义很可能给自已给埋坑）
-                </script>
-				</div>
-			  </body>
-			</html>`
-		uppyFileName := STATIC_DIR + "/uppy.html"
-		if util.IsExist(uppyFileName) {
-			if data, err := util.ReadBinFile(uppyFileName); err != nil {
-				slog.Error(err)
-			} else {
-				uppy = string(data)
-			}
-		} else {
-			util.WriteFile(uppyFileName, uppy)
-		}
-		fmt.Fprintf(w,
-			fmt.Sprintf(uppy, uploadUrl, DefaultScene, uploadBigUrl))
-	} else {
-		w.Write([]byte("web upload deny"))
-	}
-}
-
-//
+// 检测(多个)文件是否存在, 并返回查询到的文件信息 (通过文件MD5信息检测文件)
 func (hs *HttpServer) CheckFilesExist(w http.ResponseWriter, r *http.Request) {
 	var (
-		data      []byte
 		err       error
+		data      []byte
 		fileInfo  *en.FileInfo
-		fileInfos []*en.FileInfo
-		fpath     string
-		result    en.JsonResult
+		fileInfos []*en.FileInfo // 查询文件信息列表
+		result    en.JsonResult  // 返回结果
 	)
-	r.ParseForm()
+	_ = r.ParseForm()
 	md5sum := ""
 	md5sum = r.FormValue("md5s")
 	md5s := strings.Split(md5sum, ",")
 	for _, m := range md5s {
+		// 数据库中查询文件, 通过文件Hash标识
 		if fileInfo, err = hs.s.GetFileInfoFromLevelDB(m); fileInfo != nil {
 			if fileInfo.OffSet != -1 {
 				if data, err = json.Marshal(fileInfo); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 				}
 				//w.Write(data)
 				//return
 				fileInfos = append(fileInfos, fileInfo)
 				continue
 			}
-			fpath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name
+			// 文件(本地节点)绝对路径
+			fPath := DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name
 			if fileInfo.ReName != "" {
-				fpath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName
+				fPath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName
 			}
-			if util.IsExist(fpath) {
+			if util.IsExist(fPath) {
 				if data, err = json.Marshal(fileInfo); err == nil {
 					fileInfos = append(fileInfos, fileInfo)
 					//w.Write(data)
 					//return
 					continue
 				} else {
-					slog.Error(err)
+					_ = slog.Error(err)
 				}
 			} else {
 				if fileInfo.OffSet == -1 {
-					hs.s.RemoveKeyFromLevelDB(md5sum, hs.s.GetLdb()) // when file delete,delete from leveldb
+					// 检测不到文件, 判断文件已经删除 [when file delete,delete from leveldb]
+					_ = hs.s.RemoveKeyFromLevelDB(md5sum, hs.s.GetLdb())
 				}
 			}
 		}
 	}
 	result.Data = fileInfos
 	data, _ = json.Marshal(result)
-	w.Write(data)
+	_, _ = w.Write(data)
 	return
 }
 
-//
+// 检测(单个)文件是否存在, 存在返回文件信息 [md5 文件标识 , path 文件路径]
 func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 	var (
 		data     []byte
 		err      error
 		fileInfo *en.FileInfo
-		fpath    string
 		fi       os.FileInfo
 	)
 	r.ParseForm()
 	md5sum := ""
 	md5sum = r.FormValue("md5")
-	fpath = r.FormValue("path")
+	fPath := r.FormValue("path")
+	//
 	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5sum); fileInfo != nil {
 		if fileInfo.OffSet != -1 {
 			if data, err = json.Marshal(fileInfo); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 			}
-			w.Write(data)
+			_, _ = w.Write(data)
 			return
 		}
-		fpath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name
+		//
+		fPath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.Name
 		if fileInfo.ReName != "" {
-			fpath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName
+			fPath = DOCKER_DIR + fileInfo.Path + "/" + fileInfo.ReName
 		}
-		if util.IsExist(fpath) {
+		if util.IsExist(fPath) {
 			if data, err = json.Marshal(fileInfo); err == nil {
-				w.Write(data)
+				// 返回查询到的文件信息
+				_, _ = w.Write(data)
 				return
 			} else {
-				slog.Error(err)
+				_ = slog.Error(err)
 			}
 		} else {
 			if fileInfo.OffSet == -1 {
-				hs.s.RemoveKeyFromLevelDB(md5sum, hs.s.GetLdb()) // when file delete,delete from leveldb
+				// when file delete,delete from leveldb
+				_ = hs.s.RemoveKeyFromLevelDB(md5sum, hs.s.GetLdb())
 			}
 		}
 	} else {
-		if fpath != "" {
-			fi, err = os.Stat(fpath)
+		if fPath != "" {
+			fi, err = os.Stat(fPath)
 			if err == nil {
-				sum := util.MD5(fpath)
+				sum := util.MD5(fPath)
 				//if Config().EnableDistinctFile {
 				//	sum, err = util.GetFileSumByName(fpath, Config().FileSumArithmetic)
 				//	if err != nil {
@@ -631,8 +293,8 @@ func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 				//	}
 				//}
 				fileInfo = &en.FileInfo{
-					Path:      path.Dir(fpath),
-					Name:      path.Base(fpath),
+					Path:      path.Dir(fPath),
+					Name:      path.Base(fPath),
 					Size:      fi.Size(),
 					Md5:       sum,
 					Peers:     []string{Host},
@@ -640,195 +302,315 @@ func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 					TimeStamp: fi.ModTime().Unix(),
 				}
 				data, err = json.Marshal(fileInfo)
-				w.Write(data)
+				_, _ = w.Write(data)
 				return
 			}
 		}
 	}
+	// 返回空数据
 	data, _ = json.Marshal(en.FileInfo{})
-	w.Write(data)
+	_, _ = w.Write(data)
 	return
 }
 
-//
-func (hs *HttpServer) Upload(w http.ResponseWriter, r *http.Request) {
+// 获取文件信息 [md5, path]
+func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
 	var (
-		err    error
-		fn     string
-		folder string
-		fpTmp  *os.File
-		fpBody *os.File
+		err      error
+		fileInfo *en.FileInfo
+		result   en.JsonResult
 	)
-	if r.Method == http.MethodGet {
-		hs.s.Upload(w, r)
+	_ = r.ParseForm()
+	//
+	md5sum := r.FormValue("md5")
+	fPath := r.FormValue("path")
+	result.Status = "fail"
+	if !IsPeer(r) {
+		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
-	folder = STORE_DIR + "/_tmp/" + time.Now().Format("20060102")
-	os.MkdirAll(folder, 0777)
-	fn = folder + "/" + util.GetUUID()
-	defer func() {
-		os.Remove(fn)
-	}()
-	fpTmp, err = os.OpenFile(fn, os.O_RDWR|os.O_CREATE, 0777)
-	if err != nil {
-		slog.Error(err)
-		w.Write([]byte(err.Error()))
+	if fPath != "" {
+		fPath = strings.Replace(fPath, "/"+Group+"/", STORE_DIR_NAME+"/", 1)
+		md5sum = util.MD5(fPath)
+	}
+	//
+	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5sum); err != nil {
+		_ = slog.Error(err)
+		result.Message = err.Error()
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	defer fpTmp.Close()
-	if _, err = io.Copy(fpTmp, r.Body); err != nil {
-		slog.Error(err)
-		w.Write([]byte(err.Error()))
-		return
-	}
-	fpBody, err = os.Open(fn)
-	r.Body = fpBody
-	done := make(chan bool, 1)
-	hs.s.GetQueueUpload() <- en.WrapReqResp{&w, r, done}
-	<-done
-
+	result.Status = "ok"
+	result.Data = fileInfo
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+	return
 }
 
-//
+// 列出资源目录 [dir]
+func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
+	var (
+		err         error
+		result      en.JsonResult
+		filesInfo   []os.FileInfo
+		filesResult []en.FileInfoResult
+		tmpDir      string
+	)
+	if !IsPeer(r) {
+		result.Message = GetClusterNotPermitMessage(r)
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	_ = r.ParseForm()
+	dir := r.FormValue("dir")
+	//if dir == "" {
+	//	result.Message = "dir can't null"
+	//	w.Write([]byte(util.JsonEncodePretty(result)))
+	//	return
+	//}
+	dir = strings.Replace(dir, ".", "", -1)
+	if tmpDir, err = os.Readlink(dir); err == nil {
+		dir = tmpDir
+	}
+	// 读取目录, 获取目录列表
+	filesInfo, err = ioutil.ReadDir(DOCKER_DIR + STORE_DIR_NAME + "/" + dir)
+	if err != nil {
+		_ = slog.Error(err)
+		result.Message = err.Error()
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	//
+	for _, f := range filesInfo {
+		fi := en.FileInfoResult{
+			Name:    f.Name(),
+			Size:    f.Size(),
+			IsDir:   f.IsDir(),
+			ModTime: f.ModTime().Unix(),
+			Path:    dir,
+			Md5:     util.MD5(strings.Replace(STORE_DIR_NAME+"/"+dir+"/"+f.Name(), "//", "/", -1)),
+		}
+		filesResult = append(filesResult, fi)
+	}
+	result.Status = "ok"
+	result.Data = filesResult
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+	return
+}
+
+// 根据关键字, 搜索含有该关键字名称的文件
+func (hs *HttpServer) Search(w http.ResponseWriter, r *http.Request) {
+	var (
+		err       error
+		result    en.JsonResult
+		fileInfos []en.FileInfo // 搜索到的所有文件的文件信息
+		md5s      []string      // 搜索到的所有的Hash标识
+	)
+	_ = r.ParseForm()
+	// 关键字
+	kw := r.FormValue("kw")
+	if !IsPeer(r) {
+		result.Message = GetClusterNotPermitMessage(r)
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	// 编辑文件信息数据库数据, 根据关键搜索关联的文件信息
+	iter := hs.s.GetLdb().NewIterator(nil, nil)
+	var count int
+	for iter.Next() {
+		var fileInfo en.FileInfo
+		value := iter.Value()
+		if err = json.Unmarshal(value, &fileInfo); err != nil {
+			_ = slog.Error(err)
+			continue
+		}
+		// 判断文件名中, 是否包含搜索的关键字
+		if strings.Contains(fileInfo.Name, kw) && !util.Contains(fileInfo.Md5, md5s) {
+			count = count + 1
+			fileInfos = append(fileInfos, fileInfo)
+			md5s = append(md5s, fileInfo.Md5)
+		}
+		if count >= 100 {
+			break
+		}
+	}
+	iter.Release()
+	err = iter.Error()
+	if err != nil {
+		_ = slog.Error()
+	}
+	//fileInfos=hs.s.earchDict(kw) // serch file from map for huge capacity
+	result.Status = "ok"
+	result.Data = fileInfos
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+}
+
+// 移除文件 [md5, path, inner 操作标识]
 func (hs *HttpServer) RemoveFile(w http.ResponseWriter, r *http.Request) {
 	var (
 		err      error
-		md5sum   string
-		fileInfo *en.FileInfo
-		fpath    string
-		delUrl   string
 		result   en.JsonResult
-		inner    string
-		name     string
+		fileInfo *en.FileInfo
+		delUrl   string
 	)
-	_ = delUrl
-	_ = inner
-	r.ParseForm()
-	md5sum = r.FormValue("md5")
-	fpath = r.FormValue("path")
-	inner = r.FormValue("inner")
-	result.Status = "fail"
 	if !IsPeer(r) {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
+		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
+	_ = r.ParseForm()
+	md5sum := r.FormValue("md5")
+	fPath := r.FormValue("path")
+	inner := r.FormValue("inner") // 操作标识
+	result.Status = "fail"
+	// 检测权限
 	if AuthUrl != "" && !hs.s.CheckAuth(w, r) {
 		hs.s.NotPermit(w, r)
 		return
 	}
-	if fpath != "" && md5sum == "" {
-		fpath = strings.Replace(fpath, "/"+Group+"/", STORE_DIR_NAME+"/", 1)
-		md5sum = util.MD5(fpath)
+	if fPath != "" && md5sum == "" {
+		fPath = strings.Replace(fPath, "/"+Group+"/", STORE_DIR_NAME+"/", 1)
+		md5sum = util.MD5(fPath)
 	}
 	if inner != "1" {
 		for _, peer := range Peers {
 			delFile := func(peer string, md5sum string, fileInfo *en.FileInfo) {
+				// 遍历集权节点, 构造删除URL, 对集群所有节点进行删除操作
 				delUrl = fmt.Sprintf("%s%s", peer, hs.s.GetRequestURI("delete"))
 				req := httplib.Post(delUrl)
 				req.Param("md5", md5sum)
 				req.Param("inner", "1")
 				req.SetTimeout(time.Second*5, time.Second*10)
 				if _, err = req.String(); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 				}
 			}
+			//
 			go delFile(peer, md5sum, fileInfo)
 		}
 	}
+	//
 	if len(md5sum) < 32 {
 		result.Message = "md5 unvalid"
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
+	//
 	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5sum); err != nil {
 		result.Message = err.Error()
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
 	if fileInfo.OffSet >= 0 {
 		result.Message = "small file delete not support"
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	name = fileInfo.Name
+	name := fileInfo.Name
 	if fileInfo.ReName != "" {
 		name = fileInfo.ReName
 	}
-	fpath = fileInfo.Path + "/" + name
-	if fileInfo.Path != "" && util.FileExists(DOCKER_DIR+fpath) {
+	fPath = fileInfo.Path + "/" + name
+	if fileInfo.Path != "" && util.FileExists(DOCKER_DIR+fPath) {
+		// 保存删除操作日志信息
 		hs.s.SaveFileMd5Log(fileInfo, CONST_REMOME_Md5_FILE_NAME)
-		if err = os.Remove(DOCKER_DIR + fpath); err != nil {
+		// 执行删除文件
+		if err = os.Remove(DOCKER_DIR + fPath); err != nil {
 			result.Message = err.Error()
-			w.Write([]byte(util.JsonEncodePretty(result)))
+			_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 			return
 		} else {
+			// 删除成功
 			result.Message = "remove success"
 			result.Status = "ok"
-			w.Write([]byte(util.JsonEncodePretty(result)))
+			_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 			return
 		}
 	}
 	result.Message = "fail remove"
-	w.Write([]byte(util.JsonEncodePretty(result)))
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-//
-func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
+// 移除空目录
+func (hs *HttpServer) RemoveEmptyDir(w http.ResponseWriter, r *http.Request) {
 	var (
-		fpath    string
-		md5sum   string
-		fileInfo *en.FileInfo
-		err      error
-		result   en.JsonResult
+		result en.JsonResult
 	)
-	md5sum = r.FormValue("md5")
-	fpath = r.FormValue("path")
-	result.Status = "fail"
-	if !IsPeer(r) {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
-		return
-	}
-	md5sum = r.FormValue("md5")
-	if fpath != "" {
-		fpath = strings.Replace(fpath, "/"+Group+"/", STORE_DIR_NAME+"/", 1)
-		md5sum = util.MD5(fpath)
-	}
-	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5sum); err != nil {
-		slog.Error(err)
-		result.Message = err.Error()
-		w.Write([]byte(util.JsonEncodePretty(result)))
-		return
-	}
 	result.Status = "ok"
-	result.Data = fileInfo
-	w.Write([]byte(util.JsonEncodePretty(result)))
-	return
+	if IsPeer(r) {
+		//
+		go util.RemoveEmptyDir(DATA_DIR)
+		//
+		go util.RemoveEmptyDir(STORE_DIR)
+		result.Message = "clean job start ..,don't try again!!!"
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+	} else {
+		result.Message = GetClusterNotPermitMessage(r)
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+	}
 }
 
-//
+// 根据文件信息, 异步从集群下载文件, 获取文件下载地址 [fileInfo JSON格式]
+func (hs *HttpServer) SyncFileInfo(w http.ResponseWriter, r *http.Request) {
+	var (
+		err      error
+		fileInfo en.FileInfo
+		filename string
+	)
+	if !IsPeer(r) {
+		return
+	}
+	_ = r.ParseForm()
+	fileInfoStr := r.FormValue("fileInfo")
+	//
+	if err = json.Unmarshal([]byte(fileInfoStr), &fileInfo); err != nil {
+		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
+		_ = slog.Error(err)
+		return
+	}
+	if fileInfo.OffSet == -2 {
+		// 保存文件信息到数据库, 优化迁移 optimize migrate
+		_, _ = hs.s.SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, hs.s.GetLdb())
+	} else {
+		//
+		hs.s.SaveFileMd5Log(&fileInfo, CONST_Md5_QUEUE_FILE_NAME)
+	}
+	// 文件添加到下载队列, 等待(异步, 从集群)下载
+	hs.s.AppendToDownloadQueue(&fileInfo)
+	// 构造下载地址
+	filename = fileInfo.Name
+	if fileInfo.ReName != "" {
+		filename = fileInfo.ReName
+	}
+	p := strings.Replace(fileInfo.Path, STORE_DIR+"/", "", 1)
+	downloadUrl := fmt.Sprintf("http://%s/%s", r.Host, Group+"/"+p+"/"+filename)
+	slog.Info("SyncFileInfo: ", downloadUrl)
+	_, _ = w.Write([]byte(downloadUrl))
+}
+
+// 异步下载文件 [date, force 是否暴力处理(, inner 操作标识]
 func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 	var (
 		result en.JsonResult
 	)
-	r.ParseForm()
-	result.Status = "fail"
 	if !IsPeer(r) {
 		result.Message = "client must be in cluster"
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	date := ""
-	force := ""
-	inner := ""
+	//
+	_ = r.ParseForm()
+	result.Status = "fail"
+	//
 	isForceUpload := false
-	force = r.FormValue("force")
-	date = r.FormValue("date")
-	inner = r.FormValue("inner")
+	date := r.FormValue("date")
+	force := r.FormValue("force")
+	inner := r.FormValue("inner")
+	//
 	if force == "1" {
 		isForceUpload = true
 	}
 	if inner != "1" {
 		for _, peer := range Peers {
+			//
 			req := httplib.Post(peer + hs.s.GetRequestURI("sync"))
 			req.Param("force", force)
 			req.Param("inner", "1")
@@ -838,28 +620,87 @@ func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	//
 	if date == "" {
 		result.Message = "require paramete date &force , ?date=20181230"
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
 	date = strings.Replace(date, ".", "", -1)
 	if isForceUpload {
 		go hs.s.CheckFileAndSendToPeer(date, CONST_FILE_Md5_FILE_NAME, isForceUpload)
 	} else {
+		// 检测文件, 并加载到下载处理队列
 		go hs.s.CheckFileAndSendToPeer(date, CONST_Md5_ERROR_FILE_NAME, isForceUpload)
 	}
 	result.Status = "ok"
 	result.Message = "job is running"
-	w.Write([]byte(util.JsonEncodePretty(result)))
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-//
+// [date]
+func (hs *HttpServer) GetMd5sForWeb(w http.ResponseWriter, r *http.Request) {
+	var (
+		err    error
+		result mapset.Set
+		lines  []string
+		md5s   []interface{}
+	)
+	if !IsPeer(r) {
+		w.Write([]byte(GetClusterNotPermitMessage(r)))
+		return
+	}
+	_ = r.ParseForm()
+	date := r.FormValue("date")
+	//
+	if result, err = hs.s.GetMd5sByDate(date, CONST_FILE_Md5_FILE_NAME); err != nil {
+		_ = slog.Error(err)
+		return
+	}
+	md5s = result.ToSlice()
+	for _, line := range md5s {
+		if line != nil && line != "" {
+			lines = append(lines, line.(string))
+		}
+	}
+	_, _ = w.Write([]byte(strings.Join(lines, ",")))
+}
+
+// [md5s]
+func (hs *HttpServer) ReceiveMd5s(w http.ResponseWriter, r *http.Request) {
+	var (
+		err      error
+		fileInfo *en.FileInfo
+	)
+	if !IsPeer(r) {
+		_ = slog.Warn(fmt.Sprintf("ReceiveMd5s %s", util.GetClientIp(r)))
+		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
+		return
+	}
+	_ = r.ParseForm()
+	md5str := r.FormValue("md5s")
+	md5s := strings.Split(md5str, ",")
+	// 定义功能
+	AppendFunc := func(md5s []string) {
+		for _, m := range md5s {
+			if m != "" {
+				//
+				if fileInfo, err = hs.s.GetFileInfoFromLevelDB(m); err != nil {
+					_ = slog.Error(err)
+					continue
+				}
+				//
+				hs.s.AppendToQueue(fileInfo)
+			}
+		}
+	}
+	go AppendFunc(md5s)
+}
+
+// 获取服务状态信息 [inner, echart]
 func (hs *HttpServer) Stat(w http.ResponseWriter, r *http.Request) {
 	var (
 		result   en.JsonResult
-		inner    string
-		echart   string
 		category []string
 		barCount []int64
 		barSize  []int64
@@ -867,16 +708,18 @@ func (hs *HttpServer) Stat(w http.ResponseWriter, r *http.Request) {
 	)
 	if !IsPeer(r) {
 		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	r.ParseForm()
-	inner = r.FormValue("inner")
-	echart = r.FormValue("echart")
+	_ = r.ParseForm()
+	inner := r.FormValue("inner")
+	eChart := r.FormValue("echart")
+	// 获取服务状态信息数据
 	data := hs.getStat()
 	result.Status = "ok"
 	result.Data = data
-	if echart == "1" {
+	//
+	if eChart == "1" {
 		dataMap = make(map[string]interface{}, 3)
 		for _, v := range data {
 			barCount = append(barCount, v.FileCount)
@@ -888,36 +731,40 @@ func (hs *HttpServer) Stat(w http.ResponseWriter, r *http.Request) {
 		dataMap["barSize"] = barSize
 		result.Data = dataMap
 	}
+	//
 	if inner == "1" {
-		w.Write([]byte(util.JsonEncodePretty(data)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(data)))
 	} else {
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 	}
 }
 
-//
+// 获取应用状态信息
 func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 	var (
+		err      error
 		status   en.JsonResult
 		sts      map[string]interface{}
-		today    string
 		sumset   mapset.Set
 		ok       bool
 		v        interface{}
-		err      error
 		appDir   string
 		diskInfo *disk.UsageStat
 		memInfo  *mem.VirtualMemoryStat
 	)
+	// 系统运行(内存)状态
 	memStat := new(runtime.MemStats)
 	runtime.ReadMemStats(memStat)
-	today = util.GetToDay()
+	today := util.GetToDay()
 	sts = make(map[string]interface{})
+	// 队列状态
 	sts["Fs.QueueFromPeers"] = len(hs.s.GetQueueFromPeers())
 	sts["Fs.QueueToPeers"] = len(hs.s.GetQueueToPeers())
 	sts["Fs.QueueFileLog"] = len(hs.s.GetQueueFileLog())
+	//
 	for _, k := range []string{CONST_FILE_Md5_FILE_NAME, CONST_Md5_ERROR_FILE_NAME, CONST_Md5_QUEUE_FILE_NAME} {
 		k2 := fmt.Sprintf("%s_%s", today, k)
+		//
 		if v, ok = hs.s.GetSumMap().GetValue(k2); ok {
 			sumset = v.(mapset.Set)
 			if k == CONST_Md5_QUEUE_FILE_NAME {
@@ -931,6 +778,7 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// 配置信息
 	sts["Fs.AutoRepair"] = AutoRepair
 	sts["Fs.QueueUpload"] = len(hs.s.GetQueueUpload())
 	sts["Fs.RefreshInterval"] = RefreshInterval
@@ -965,60 +813,37 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 	sts["Sys.MemInfo"] = memInfo
 	status.Status = "ok"
 	status.Data = sts
-	w.Write([]byte(util.JsonEncodePretty(status)))
+	_, _ = w.Write([]byte(util.JsonEncodePretty(status)))
 }
 
-func (hs *HttpServer) getStat() []en.StatDateFileInfo {
+// 执行修复文件并同步集群数据 [force]
+func (hs *HttpServer) Repair(w http.ResponseWriter, r *http.Request) {
 	var (
-		min   int64
-		max   int64
-		err   error
-		i     int64
-		rows  []en.StatDateFileInfo
-		total en.StatDateFileInfo
+		result      en.JsonResult
+		force       string
+		forceRepair bool
 	)
-	min = 20190101
-	max = 20190101
-	for k := range hs.s.GetStatMap().Get() {
-		ks := strings.Split(k, "_")
-		if len(ks) == 2 {
-			if i, err = strconv.ParseInt(ks[0], 10, 64); err != nil {
-				continue
-			}
-			if i >= max {
-				max = i
-			}
-			if i < min {
-				min = i
-			}
-		}
+	//
+	if !IsPeer(r) {
+		result.Message = GetClusterNotPermitMessage(r)
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
 	}
-	for i := min; i <= max; i++ {
-		s := fmt.Sprintf("%d", i)
-		if v, ok := hs.s.GetStatMap().GetValue(s + "_" + CONST_STAT_FILE_TOTAL_SIZE_KEY); ok {
-			var info en.StatDateFileInfo
-			info.Date = s
-			switch v.(type) {
-			case int64:
-				info.TotalSize = v.(int64)
-				total.TotalSize = total.TotalSize + v.(int64)
-			}
-			if v, ok := hs.s.GetStatMap().GetValue(s + "_" + CONST_STAT_FILE_COUNT_KEY); ok {
-				switch v.(type) {
-				case int64:
-					info.FileCount = v.(int64)
-					total.FileCount = total.FileCount + v.(int64)
-				}
-			}
-			rows = append(rows, info)
-		}
+
+	result.Status = "ok"
+	_ = r.ParseForm()
+	force = r.FormValue("force")
+	if force == "1" {
+		forceRepair = true
 	}
-	total.Date = "all"
-	rows = append(rows, total)
-	return rows
+
+	// 自动修复文件并同步集群数据服务
+	go hs.s.AutoRepair(forceRepair)
+	result.Message = "repair job start..."
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-//
+// 检测状态文件(stat.json)数据, 并修复 [date, inner]
 func (hs *HttpServer) RepairStatWeb(w http.ResponseWriter, r *http.Request) {
 	var (
 		result en.JsonResult
@@ -1027,14 +852,17 @@ func (hs *HttpServer) RepairStatWeb(w http.ResponseWriter, r *http.Request) {
 	)
 	if !IsPeer(r) {
 		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
+	_ = r.ParseForm()
+	//
 	date = r.FormValue("date")
 	inner = r.FormValue("inner")
+	//
 	if ok, err := regexp.MatchString("\\d{8}", date); err != nil || !ok {
 		result.Message = "invalid date"
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
 	if date == "" || len(date) != 8 {
@@ -1042,362 +870,83 @@ func (hs *HttpServer) RepairStatWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	if inner != "1" {
 		for _, peer := range Peers {
+			//
 			req := httplib.Post(peer + hs.s.GetRequestURI("repair_stat"))
 			req.Param("inner", "1")
 			req.Param("date", date)
 			if _, err := req.String(); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 			}
 		}
 	}
+	// 检测状态文件(stat.json)数据, 并修复
 	result.Data = hs.s.RepairStatByDate(date)
 	result.Status = "ok"
-	w.Write([]byte(util.JsonEncodePretty(result)))
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-//
-func (hs *HttpServer) Repair(w http.ResponseWriter, r *http.Request) {
-	var (
-		force       string
-		forceRepair bool
-		result      en.JsonResult
-	)
-	result.Status = "ok"
-	r.ParseForm()
-	force = r.FormValue("force")
-	if force == "1" {
-		forceRepair = true
-	}
-	if IsPeer(r) {
-		go hs.s.AutoRepair(forceRepair)
-		result.Message = "repair job start..."
-		w.Write([]byte(util.JsonEncodePretty(result)))
-	} else {
-		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
-	}
-
-}
-
-//
-func (hs *HttpServer) Report(w http.ResponseWriter, r *http.Request) {
-	var (
-		reportFileName string
-		result         en.JsonResult
-		html           string
-	)
-	result.Status = "ok"
-	r.ParseForm()
-	if IsPeer(r) {
-		reportFileName = STATIC_DIR + "/report.html"
-		if util.IsExist(reportFileName) {
-			if data, err := util.ReadBinFile(reportFileName); err != nil {
-				slog.Error(err)
-				result.Message = err.Error()
-				w.Write([]byte(util.JsonEncodePretty(result)))
-				return
-			} else {
-				html = string(data)
-				if SupportGroupManage {
-					html = strings.Replace(html, "{group}", "/"+Group, 1)
-				} else {
-					html = strings.Replace(html, "{group}", "", 1)
-				}
-				w.Write([]byte(html))
-				return
-			}
-		} else {
-			w.Write([]byte(fmt.Sprintf("%s is not found", reportFileName)))
-		}
-	} else {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
-	}
-}
-
-//
-func (hs *HttpServer) BackUp(w http.ResponseWriter, r *http.Request) {
-	var (
-		err    error
-		date   string
-		result en.JsonResult
-		inner  string
-		url    string
-	)
-	result.Status = "ok"
-	r.ParseForm()
-	date = r.FormValue("date")
-	inner = r.FormValue("inner")
-	if date == "" {
-		date = util.GetToDay()
-	}
-	if IsPeer(r) {
-		if inner != "1" {
-			for _, peer := range Peers {
-				backUp := func(peer string, date string) {
-					url = fmt.Sprintf("%s%s", peer, hs.s.GetRequestURI("backup"))
-					req := httplib.Post(url)
-					req.Param("date", date)
-					req.Param("inner", "1")
-					req.SetTimeout(time.Second*5, time.Second*600)
-					if _, err = req.String(); err != nil {
-						slog.Error(err)
-					}
-				}
-				go backUp(peer, date)
-			}
-		}
-		go hs.s.BackUpMetaDataByDate(date)
-		result.Message = "back job start..."
-		w.Write([]byte(util.JsonEncodePretty(result)))
-	} else {
-		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
-	}
-}
-
-//
-func (hs *HttpServer) Search(w http.ResponseWriter, r *http.Request) {
-	var (
-		result    en.JsonResult
-		err       error
-		kw        string
-		count     int
-		fileInfos []en.FileInfo
-		md5s      []string
-	)
-	kw = r.FormValue("kw")
-	if !IsPeer(r) {
-		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
-		return
-	}
-	iter := hs.s.GetLdb().NewIterator(nil, nil)
-	for iter.Next() {
-		var fileInfo en.FileInfo
-		value := iter.Value()
-		if err = json.Unmarshal(value, &fileInfo); err != nil {
-			slog.Error(err)
-			continue
-		}
-		if strings.Contains(fileInfo.Name, kw) && !util.Contains(fileInfo.Md5, md5s) {
-			count = count + 1
-			fileInfos = append(fileInfos, fileInfo)
-			md5s = append(md5s, fileInfo.Md5)
-		}
-		if count >= 100 {
-			break
-		}
-	}
-	iter.Release()
-	err = iter.Error()
-	if err != nil {
-		slog.Error()
-	}
-	//fileInfos=hs.s.earchDict(kw) // serch file from map for huge capacity
-	result.Status = "ok"
-	result.Data = fileInfos
-	w.Write([]byte(util.JsonEncodePretty(result)))
-}
-
-//
-func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
-	var (
-		result      en.JsonResult
-		dir         string
-		filesInfo   []os.FileInfo
-		err         error
-		filesResult []en.FileInfoResult
-		tmpDir      string
-	)
-	if !IsPeer(r) {
-		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
-		return
-	}
-	dir = r.FormValue("dir")
-	//if dir == "" {
-	//	result.Message = "dir can't null"
-	//	w.Write([]byte(util.JsonEncodePretty(result)))
-	//	return
-	//}
-	dir = strings.Replace(dir, ".", "", -1)
-	if tmpDir, err = os.Readlink(dir); err == nil {
-		dir = tmpDir
-	}
-	filesInfo, err = ioutil.ReadDir(DOCKER_DIR + STORE_DIR_NAME + "/" + dir)
-	if err != nil {
-		slog.Error(err)
-		result.Message = err.Error()
-		w.Write([]byte(util.JsonEncodePretty(result)))
-		return
-	}
-	for _, f := range filesInfo {
-		fi := en.FileInfoResult{
-			Name:    f.Name(),
-			Size:    f.Size(),
-			IsDir:   f.IsDir(),
-			ModTime: f.ModTime().Unix(),
-			Path:    dir,
-			Md5:     util.MD5(strings.Replace(STORE_DIR_NAME+"/"+dir+"/"+f.Name(), "//", "/", -1)),
-		}
-		filesResult = append(filesResult, fi)
-	}
-	result.Status = "ok"
-	result.Data = filesResult
-	w.Write([]byte(util.JsonEncodePretty(result)))
-	return
-}
-
-//
-func (hs *HttpServer) RemoveEmptyDir(w http.ResponseWriter, r *http.Request) {
-	var (
-		result en.JsonResult
-	)
-	result.Status = "ok"
-	if IsPeer(r) {
-		go util.RemoveEmptyDir(DATA_DIR)
-		go util.RemoveEmptyDir(STORE_DIR)
-		result.Message = "clean job start ..,don't try again!!!"
-		w.Write([]byte(util.JsonEncodePretty(result)))
-	} else {
-		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
-	}
-}
-
-//
+// 数据迁移
 func (hs *HttpServer) RepairFileInfo(w http.ResponseWriter, r *http.Request) {
 	var (
 		result en.JsonResult
 	)
 	if !IsPeer(r) {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
+		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
+	//
 	if !EnableMigrate {
-		w.Write([]byte("please set enable_migrate=true"))
+		_, _ = w.Write([]byte("please set enable_migrate=true"))
 		return
 	}
+	//
+	//
+	go hs.s.RepairFileInfoFromFile()
 	result.Status = "ok"
 	result.Message = "repair job start,don't try again,very danger "
-	go hs.s.RepairFileInfoFromFile()
-	w.Write([]byte(util.JsonEncodePretty(result)))
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-//
-func (hs *HttpServer) SyncFileInfo(w http.ResponseWriter, r *http.Request) {
+// 清理并备份数据 [date, inner]
+func (hs *HttpServer) BackUp(w http.ResponseWriter, r *http.Request) {
 	var (
-		err         error
-		fileInfo    en.FileInfo
-		fileInfoStr string
-		filename    string
-	)
-	r.ParseForm()
-	if !IsPeer(r) {
-		return
-	}
-	fileInfoStr = r.FormValue("fileInfo")
-	if err = json.Unmarshal([]byte(fileInfoStr), &fileInfo); err != nil {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
-		slog.Error(err)
-		return
-	}
-	if fileInfo.OffSet == -2 {
-		// optimize migrate
-		hs.s.SaveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, hs.s.GetLdb())
-	} else {
-		hs.s.SaveFileMd5Log(&fileInfo, CONST_Md5_QUEUE_FILE_NAME)
-	}
-	hs.s.AppendToDownloadQueue(&fileInfo)
-	filename = fileInfo.Name
-	if fileInfo.ReName != "" {
-		filename = fileInfo.ReName
-	}
-	p := strings.Replace(fileInfo.Path, STORE_DIR+"/", "", 1)
-	downloadUrl := fmt.Sprintf("http://%s/%s", r.Host, Group+"/"+p+"/"+filename)
-	slog.Info("SyncFileInfo: ", downloadUrl)
-	w.Write([]byte(downloadUrl))
-}
-
-//
-func (hs *HttpServer) GetMd5sForWeb(w http.ResponseWriter, r *http.Request) {
-	var (
-		date   string
 		err    error
-		result mapset.Set
-		lines  []string
-		md5s   []interface{}
-	)
-	if !IsPeer(r) {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
-		return
-	}
-	date = r.FormValue("date")
-	if result, err = hs.s.GetMd5sByDate(date, CONST_FILE_Md5_FILE_NAME); err != nil {
-		slog.Error(err)
-		return
-	}
-	md5s = result.ToSlice()
-	for _, line := range md5s {
-		if line != nil && line != "" {
-			lines = append(lines, line.(string))
-		}
-	}
-	w.Write([]byte(strings.Join(lines, ",")))
-}
-
-//
-func (hs *HttpServer) ReceiveMd5s(w http.ResponseWriter, r *http.Request) {
-	var (
-		err      error
-		md5str   string
-		fileInfo *en.FileInfo
-		md5s     []string
-	)
-	if !IsPeer(r) {
-		slog.Warn(fmt.Sprintf("ReceiveMd5s %s", util.GetClientIp(r)))
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
-		return
-	}
-	r.ParseForm()
-	md5str = r.FormValue("md5s")
-	md5s = strings.Split(md5str, ",")
-	AppendFunc := func(md5s []string) {
-		for _, m := range md5s {
-			if m != "" {
-				if fileInfo, err = hs.s.GetFileInfoFromLevelDB(m); err != nil {
-					slog.Error(err)
-					continue
-				}
-				hs.s.AppendToQueue(fileInfo)
-			}
-		}
-	}
-	go AppendFunc(md5s)
-}
-
-//
-func (hs *HttpServer) GenGoogleSecret(w http.ResponseWriter, r *http.Request) {
-	var (
 		result en.JsonResult
 	)
-	result.Status = "ok"
-	result.Message = "ok"
 	if !IsPeer(r) {
 		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
 	}
-	GetSeed := func(length int) string {
-		seeds := "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-		s := ""
-		random.Seed(time.Now().UnixNano())
-		for i := 0; i < length; i++ {
-			s += string(seeds[random.Intn(32)])
+	//
+	result.Status = "ok"
+	_ = r.ParseForm()
+	date := r.FormValue("date")
+	inner := r.FormValue("inner")
+	if date == "" {
+		date = util.GetToDay()
+	}
+	if inner != "1" {
+		// 针对集群所有节点处理
+		for _, peer := range Peers {
+			backUp := func(peer string, date string) {
+				url := fmt.Sprintf("%s%s", peer, hs.s.GetRequestURI("backup"))
+				req := httplib.Post(url)
+				req.Param("date", date)
+				req.Param("inner", "1")
+				req.SetTimeout(time.Second*5, time.Second*600)
+				if _, err = req.String(); err != nil {
+					slog.Error(err)
+				}
+			}
+
+			go backUp(peer, date)
 		}
-		return s
 	}
-	result.Data = GetSeed(16)
-	w.Write([]byte(util.JsonEncodePretty(result)))
+	// 执行备份服务
+	go hs.s.BackUpMetaDataByDate(date)
+	result.Message = "back job start..."
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
 //
@@ -1408,20 +957,49 @@ func (hs *HttpServer) GenGoogleCode(w http.ResponseWriter, r *http.Request) {
 		secret string
 		goauth *googleAuthenticator.GAuth
 	)
-	r.ParseForm()
-	goauth = googleAuthenticator.NewGAuth()
-	secret = r.FormValue("secret")
-	result.Status = "ok"
-	result.Message = "ok"
 	if !IsPeer(r) {
 		result.Message = GetClusterNotPermitMessage(r)
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
+	//
+	_ = r.ParseForm()
+	result.Status = "ok"
+	result.Message = "ok"
+	//
+	goauth = googleAuthenticator.NewGAuth()
+	secret = r.FormValue("secret")
 	if result.Data, err = goauth.GetCode(secret); err != nil {
 		result.Message = err.Error()
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	w.Write([]byte(util.JsonEncodePretty(result)))
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+}
+
+//
+func (hs *HttpServer) GenGoogleSecret(w http.ResponseWriter, r *http.Request) {
+	var (
+		result en.JsonResult
+	)
+	if !IsPeer(r) {
+		result.Message = GetClusterNotPermitMessage(r)
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	result.Status = "ok"
+	result.Message = "ok"
+	//
+	GetSeed := func(length int) string {
+		seeds := "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+		s := ""
+		random.Seed(time.Now().UnixNano())
+		for i := 0; i < length; i++ {
+			s += string(seeds[random.Intn(32)])
+		}
+		return s
+	}
+	//
+	result.Data = GetSeed(16)
+	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }

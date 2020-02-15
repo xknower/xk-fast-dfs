@@ -24,6 +24,7 @@ const (
 	CONST_REMOME_Md5_FILE_NAME     = conf.CONST_REMOME_Md5_FILE_NAME
 	CONST_MESSAGE_CLUSTER_IP       = conf.CONST_MESSAGE_CLUSTER_IP
 	GO_FASTDFS_IP                  = conf.GO_FASTDFS_IP
+	UPPY_HTML                      = conf.UPLOAD_UPPY_HTML
 )
 
 // 项目应用目录

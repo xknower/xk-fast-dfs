@@ -78,7 +78,7 @@ func NewService() (server *Service, err error) {
 	//
 	if server.ldb, err = leveldb.OpenFile(CONST_LEVELDB_FILE_NAME, opts); err != nil {
 		fmt.Println(fmt.Sprintf("open db file %s fail,maybe has opening", CONST_LEVELDB_FILE_NAME))
-		slog.Error(err)
+		_ = slog.Error(err)
 		panic(err)
 	}
 
@@ -86,7 +86,7 @@ func NewService() (server *Service, err error) {
 	server.logDB, err = leveldb.OpenFile(CONST_LOG_LEVELDB_FILE_NAME, opts)
 	if err != nil {
 		fmt.Println(fmt.Sprintf("open db file %s fail,maybe has opening", CONST_LOG_LEVELDB_FILE_NAME))
-		slog.Error(err)
+		_ = slog.Error(err)
 		panic(err)
 	}
 

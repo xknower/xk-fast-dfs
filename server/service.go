@@ -33,6 +33,7 @@ func (server *Service) checkFileAndSendToPeer(date string, filename string, isFo
 			slog.Error(string(buffer))
 		}
 	}()
+	//
 	if md5set, err = server.getMd5sByDate(date, filename); err != nil {
 		slog.Error(err)
 		return
@@ -93,9 +94,9 @@ func (server *Service) checkClusterStatus() {
 		defer func() {
 			if re := recover(); re != nil {
 				buffer := debug.Stack()
-				slog.Error("CheckClusterStatus")
-				slog.Error(re)
-				slog.Error(string(buffer))
+				_ = slog.Error("CheckClusterStatus")
+				_ = slog.Error(re)
+				_ = slog.Error(string(buffer))
 			}
 		}()
 		var (
@@ -118,7 +119,7 @@ func (server *Service) checkClusterStatus() {
 						body = fmt.Sprintf("%s\nserver:%s\n", subject, peer)
 					}
 					if err = server.sendToMail(to, subject, body, "text"); err != nil {
-						slog.Error(err)
+						_ = slog.Error(err)
 					}
 				}
 				if alarmUrl != "" {
@@ -127,7 +128,7 @@ func (server *Service) checkClusterStatus() {
 					req.Param("message", body)
 					req.Param("subject", subject)
 					if _, err = req.String(); err != nil {
-						slog.Error(err)
+						_ = slog.Error(err)
 					}
 				}
 			}
@@ -144,7 +145,7 @@ func (server *Service) checkClusterStatus() {
 // 03 服务
 func (server *Service) loadQueueSendToPeer() {
 	if queue, err := server.loadFileInfoByDate(util.GetToDay(), CONST_Md5_QUEUE_FILE_NAME); err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	} else {
 		for fileInfo := range queue.Iter() {
 			//server.queueFromPeers <- *fileInfo.(*FileInfo)
@@ -184,12 +185,12 @@ func (server *Service) consumerDownLoad() {
 		for {
 			fileInfo := <-server.queueFromPeers
 			if len(fileInfo.Peers) <= 0 {
-				slog.Warn("Peer is null", fileInfo)
+				_ = slog.Warn("Peer is null", fileInfo)
 				continue
 			}
 			for _, peer := range fileInfo.Peers {
 				if strings.Contains(peer, "127.0.0.1") {
-					slog.Warn("sync error with 127.0.0.1", fileInfo)
+					_ = slog.Warn("sync error with 127.0.0.1", fileInfo)
 					continue
 				}
 				if peer != server.host {
@@ -238,7 +239,7 @@ func (server *Service) removeDownloading() {
 				keys := strings.Split(string(key), "_")
 				if len(keys) == 3 {
 					if t, err := strconv.ParseInt(keys[1], 10, 64); err == nil && time.Now().Unix()-t > 60*10 {
-						os.Remove(DOCKER_DIR + keys[2])
+						_ = os.Remove(DOCKER_DIR + keys[2])
 					}
 				}
 			}
@@ -266,7 +267,7 @@ func (server *Service) watchFilesChange() {
 	//w.FilterOps(watcher.Create, watcher.Remove)
 	curDir, err = filepath.Abs(filepath.Dir(STORE_DIR_NAME))
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 	go func() {
 		for {
@@ -296,7 +297,7 @@ func (server *Service) watchFilesChange() {
 				qchan <- &fileInfo
 				//server.AppendToQueue(&fileInfo)
 			case err := <-w.Error:
-				slog.Error(err)
+				_ = slog.Error(err)
 			case <-w.Closed:
 				return
 			}
@@ -320,7 +321,7 @@ func (server *Service) watchFilesChange() {
 				if c.Op == watcher.Create.String() {
 					slog.Info(fmt.Sprintf("Syncfile Add to Queue path:%s", fileInfo.Path+"/"+fileInfo.Name))
 					server.appendToQueue(c)
-					server.saveFileInfoToLevelDB(c.Md5, c, server.ldb)
+					_, _ = server.saveFileInfoToLevelDB(c.Md5, c, server.ldb)
 				}
 			}
 		}
@@ -333,19 +334,19 @@ func (server *Service) watchFilesChange() {
 		curDir = dir
 		isLink = true
 		if err := w.AddRecursive(dir); err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 		}
-		w.Ignore(dir + "/_tmp/")
-		w.Ignore(dir + "/" + LARGE_DIR_NAME + "/")
+		_ = w.Ignore(dir + "/_tmp/")
+		_ = w.Ignore(dir + "/" + LARGE_DIR_NAME + "/")
 	}
 
 	if err := w.AddRecursive("./" + STORE_DIR_NAME); err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
-	w.Ignore("./" + STORE_DIR_NAME + "/_tmp/")
-	w.Ignore("./" + STORE_DIR_NAME + "/" + LARGE_DIR_NAME + "/")
+	_ = w.Ignore("./" + STORE_DIR_NAME + "/_tmp/")
+	_ = w.Ignore("./" + STORE_DIR_NAME + "/" + LARGE_DIR_NAME + "/")
 	if err := w.Start(time.Millisecond * 100); err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 }
 
@@ -355,7 +356,7 @@ func (server *Service) loadSearchDict() {
 		slog.Info("Load search dict ....")
 		f, err := os.Open(CONST_SEARCH_FILE_NAME)
 		if err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 			return
 		}
 		defer f.Close()
@@ -385,15 +386,15 @@ func (server *Service) repairFileInfoFromFile() {
 	defer func() {
 		if re := recover(); re != nil {
 			buffer := debug.Stack()
-			slog.Error("RepairFileInfoFromFile")
-			slog.Error(re)
-			slog.Error(string(buffer))
+			_ = slog.Error("RepairFileInfoFromFile")
+			_ = slog.Error(re)
+			_ = slog.Error(string(buffer))
 		}
 	}()
 
 	// 获取锁
 	if server.lockMap.IsLock("RepairFileInfoFromFile") {
-		slog.Warn("Lock RepairFileInfoFromFile")
+		_ = slog.Warn("Lock RepairFileInfoFromFile")
 		return
 	}
 	server.lockMap.LockKey("RepairFileInfoFromFile")
@@ -437,7 +438,7 @@ func (server *Service) repairFileInfoFromFile() {
 				//sum, err = util.GetFileSumByName(file_path+"/"+fi.Name(), Config().FileSumArithmetic)
 				sum = pathMd5
 				if err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 					continue
 				}
 				fileInfo = en.FileInfo{
@@ -453,7 +454,7 @@ func (server *Service) repairFileInfoFromFile() {
 				slog.Info(filePath, "/", fi.Name())
 				server.appendToQueue(&fileInfo)
 				//server.postFileToPeer(&fileInfo)
-				server.saveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
+				_, _ = server.saveFileInfoToLevelDB(fileInfo.Md5, &fileInfo, server.ldb)
 				//server.SaveFileMd5Log(&fileInfo, CONST_FILE_Md5_FILE_NAME)
 			}
 		}
@@ -473,10 +474,10 @@ func (server *Service) repairFileInfoFromFile() {
 	}
 	fi, err = os.Stat(pathname)
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 	if fi.IsDir() {
-		filepath.Walk(pathname, HandleFunc)
+		_ = filepath.Walk(pathname, HandleFunc)
 	}
 	slog.Info("RepairFileInfoFromFile is finish.")
 }
@@ -485,7 +486,7 @@ func (server *Service) repairFileInfoFromFile() {
 func (server *Service) autoRepair(forceRepair bool) {
 	// 获取锁
 	if server.lockMap.IsLock("AutoRepair") {
-		slog.Warn("Lock AutoRepair")
+		_ = slog.Warn("Lock AutoRepair")
 		return
 	}
 	server.lockMap.LockKey("AutoRepair")
@@ -507,9 +508,9 @@ func (server *Service) autoRepair(forceRepair bool) {
 		defer func() {
 			if re := recover(); re != nil {
 				buffer := debug.Stack()
-				slog.Error("AutoRepair")
-				slog.Error(re)
-				slog.Error(string(buffer))
+				_ = slog.Error("AutoRepair")
+				_ = slog.Error(re)
+				_ = slog.Error(string(buffer))
 			}
 		}()
 
@@ -519,7 +520,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 			req := httplib.Get(fmt.Sprintf("%s%s?date=%s&force=%s", peer, server.getRequestURI("sync"), dateStat.Date, "1"))
 			req.SetTimeout(time.Second*5, time.Second*5)
 			if _, err = req.String(); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 			}
 			slog.Info(fmt.Sprintf("syn file from %s date %s", peer, dateStat.Date))
 		}
@@ -528,7 +529,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 			req.Param("inner", "1")
 			req.SetTimeout(time.Second*5, time.Second*15)
 			if err = req.ToJSON(&dateStats); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 				continue
 			}
 			for _, dateStat := range dateStats {
@@ -549,7 +550,7 @@ func (server *Service) autoRepair(forceRepair bool) {
 								continue
 							}
 							if localSet, err = server.getMd5sByDate(dateStat.Date, CONST_FILE_Md5_FILE_NAME); err != nil {
-								slog.Error(err)
+								_ = slog.Error(err)
 								continue
 							}
 							remoteSet = util.StrToMapSet(md5s, ",")
@@ -558,12 +559,12 @@ func (server *Service) autoRepair(forceRepair bool) {
 							req = httplib.Post(fmt.Sprintf("%s%s", peer, server.getRequestURI("receive_md5s")))
 							req.SetTimeout(time.Second*15, time.Second*60)
 							req.Param("md5s", md5s)
-							req.String()
+							_, _ = req.String()
 							tmpSet = allSet.Difference(remoteSet)
 							for v := range tmpSet.Iter() {
 								if v != nil {
 									if fileInfo, err = server.getFileInfoFromLevelDB(v.(string)); err != nil {
-										slog.Error(err)
+										_ = slog.Error(err)
 										continue
 									}
 									server.appendToQueue(fileInfo)

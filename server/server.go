@@ -3,6 +3,7 @@ package server
 import (
 	"../conf"
 	"../en"
+	"../web"
 	"bytes"
 	"errors"
 	"fmt"
@@ -215,17 +216,17 @@ func (server *Service) formatStatInfo() {
 	)
 	if util.FileExists(CONST_STAT_FILE_NAME) {
 		if data, err = util.ReadBinFile(CONST_STAT_FILE_NAME); err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 		} else {
 			if err = json.Unmarshal(data, &stat); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 			} else {
 				for k, v := range stat {
 					switch v.(type) {
 					case float64:
 						vv := strings.Split(fmt.Sprintf("%f", v), ".")[0]
 						if count, err = strconv.ParseInt(vv, 10, 64); err != nil {
-							slog.Error(err)
+							_ = slog.Error(err)
 						} else {
 							server.statMap.Put(k, count)
 						}
@@ -245,9 +246,9 @@ func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
 	defer func() {
 		if re := recover(); re != nil {
 			buffer := debug.Stack()
-			slog.Error("RepairStatByDate")
-			slog.Error(re)
-			slog.Error(string(buffer))
+			_ = slog.Error("RepairStatByDate")
+			_ = slog.Error(re)
+			_ = slog.Error(string(buffer))
 		}
 	}()
 	var (
@@ -285,9 +286,9 @@ func (server *Service) saveStat() {
 		defer func() {
 			if re := recover(); re != nil {
 				buffer := debug.Stack()
-				slog.Error("SaveStatFunc")
-				slog.Error(re)
-				slog.Error(string(buffer))
+				_ = slog.Error("SaveStatFunc")
+				_ = slog.Error(re)
+				_ = slog.Error(string(buffer))
 			}
 		}()
 		stat := server.statMap.Get()
@@ -296,7 +297,7 @@ func (server *Service) saveStat() {
 			case int64, int32, int, float64, float32:
 				if v.(int64) >= 0 {
 					if data, err := json.Marshal(stat); err != nil {
-						slog.Error(err)
+						_ = slog.Error(err)
 					} else {
 						util.WriteBinFile(CONST_STAT_FILE_NAME, data)
 					}
@@ -309,7 +310,8 @@ func (server *Service) saveStat() {
 
 // 初始化 Tus
 // ---------- ---------- ----------
-//
+// 大文件上传, 支持断点续传功能
+// 使用本地文件系统, 添加 HTTP Handler (/big/upload/)
 // ---------- ---------- ----------
 func (server *Service) initTus() {
 	var (
@@ -318,13 +320,13 @@ func (server *Service) initTus() {
 		bigDir  string
 	)
 	BIG_DIR := STORE_DIR + "/_big/" + peerId
-	os.MkdirAll(BIG_DIR, 0775)
-	os.MkdirAll(LOG_DIR, 0775)
+	_ = os.MkdirAll(BIG_DIR, 0775)
+	_ = os.MkdirAll(LOG_DIR, 0775)
 	store := filestore.FileStore{
 		Path: BIG_DIR,
 	}
 	if fileLog, err = os.OpenFile(LOG_DIR+"/tusd.log", os.O_CREATE|os.O_RDWR, 0666); err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 		panic("initTus")
 	}
 
@@ -335,10 +337,10 @@ func (server *Service) initTus() {
 			} else {
 				if fi.Size() > 1024*1024*500 {
 					//500M
-					util.CopyFile(LOG_DIR+"/tusd.log", LOG_DIR+"/tusd.log.2")
-					fileLog.Seek(0, 0)
-					fileLog.Truncate(0)
-					fileLog.Seek(0, 2)
+					_, _ = util.CopyFile(LOG_DIR+"/tusd.log", LOG_DIR+"/tusd.log.2")
+					_, _ = fileLog.Seek(0, 0)
+					_ = fileLog.Truncate(0)
+					_, _ = fileLog.Seek(0, 2)
 				}
 			}
 			time.Sleep(time.Second * 30)
@@ -362,7 +364,7 @@ func (server *Service) initTus() {
 		)
 		//
 		if fi, err = server.getFileInfoFromLevelDB(id); err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 			return nil, err
 		} else {
 			if authUrl != "" {
@@ -396,7 +398,7 @@ func (server *Service) initTus() {
 					return bufferReader, nil
 				} else {
 					msg := "data no sync"
-					slog.Error(msg)
+					_ = slog.Error(msg)
 					return nil, errors.New(msg)
 				}
 			}
@@ -440,7 +442,7 @@ func (server *Service) initTus() {
 				oldFullPath := BIG_DIR + "/" + info.ID + ".bin"
 				infoFullPath := BIG_DIR + "/" + info.ID + ".info"
 				if md5sum, err = util.GetFileSumByName(oldFullPath, fileSumArithmetic); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 					continue
 				}
 				ext := path.Ext(name)
@@ -461,18 +463,18 @@ func (server *Service) initTus() {
 					newFullPath = STORE_DIR + "/" + scene + fpath + filename
 				}
 				if fi, err := server.getFileInfoFromLevelDB(md5sum); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 				} else {
 					tpath := server.GetFilePathByInfo(fi, true)
 					if fi.Md5 != "" && util.FileExists(tpath) {
 						if _, err := server.saveFileInfoToLevelDB(info.ID, fi, server.ldb); err != nil {
-							slog.Error(err)
+							_ = slog.Error(err)
 						}
 						slog.Info(fmt.Sprintf("file is found md5:%s", fi.Md5))
 						slog.Info("remove file:", oldFullPath)
 						slog.Info("remove file:", infoFullPath)
-						os.Remove(oldFullPath)
-						os.Remove(infoFullPath)
+						_ = os.Remove(oldFullPath)
+						_ = os.Remove(infoFullPath)
 						continue
 					}
 				}
@@ -489,14 +491,14 @@ func (server *Service) initTus() {
 					OffSet:    -1,
 				}
 				if err = os.Rename(oldFullPath, newFullPath); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 					continue
 				}
 				slog.Info(fileInfo)
-				os.Remove(infoFullPath)
+				_ = os.Remove(infoFullPath)
 				if _, err = server.saveFileInfoToLevelDB(info.ID, fileInfo, server.ldb); err != nil {
 					//assosiate file id
-					slog.Error(err)
+					_ = slog.Error(err)
 				}
 				server.AppendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
 				//
@@ -508,7 +510,7 @@ func (server *Service) initTus() {
 						req.Param("info", util.JsonEncodePretty(fileInfo))
 						req.Param("id", info.ID)
 						if _, err := req.String(); err != nil {
-							slog.Error(err)
+							_ = slog.Error(err)
 						}
 					}
 				}
@@ -518,7 +520,7 @@ func (server *Service) initTus() {
 	}
 	go notify(handler)
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 	http.Handle(bigDir, http.StripPrefix(bigDir, handler))
 }
@@ -601,8 +603,8 @@ func (server *Service) reload(w http.ResponseWriter, r *http.Request) {
 	)
 	result.Status = "fail"
 	err := r.ParseForm()
-	if !IsPeer(r) {
-		w.Write([]byte(GetClusterNotPermitMessage(r)))
+	if !web.IsPeer(r) {
+		_, _ = w.Write([]byte(web.GetClusterNotPermitMessage(r)))
 		return
 	}
 	cfgJson := r.FormValue("cfg")
@@ -612,33 +614,33 @@ func (server *Service) reload(w http.ResponseWriter, r *http.Request) {
 	if action == "get" {
 		result.Data = conf.Global()
 		result.Status = "ok"
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
 	//
 	if action == "set" {
 		if cfgJson == "" {
 			result.Message = "(error)parameter cfg(json) require"
-			w.Write([]byte(util.JsonEncodePretty(result)))
+			_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 			return
 		}
 		if err = json.Unmarshal([]byte(cfgJson), &cfg); err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 			result.Message = err.Error()
-			w.Write([]byte(util.JsonEncodePretty(result)))
+			_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 			return
 		}
 		result.Status = "ok"
 		cfgJson = util.JsonEncodePretty(cfg)
 		util.WriteFile(CONST_CONF_FILE_NAME, cfgJson)
-		w.Write([]byte(util.JsonEncodePretty(result)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
 	//
 	if action == "reload" {
 		if data, err = ioutil.ReadFile(CONST_CONF_FILE_NAME); err != nil {
 			result.Message = err.Error()
-			w.Write([]byte(util.JsonEncodePretty(result)))
+			_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 			return
 		}
 		if err = json.Unmarshal(data, &cfg); err != nil {

@@ -20,6 +20,7 @@ import (
 	"time"
 )
 
+// 根据文件 MD5值 (Hash值 - 根据文件路径计算计算Hash), 获取文件信息
 // 获取文件信息(从数据库加载文件信息) -> 检测文件并加载到处理队列 | 自动修复文件并同步集群数据服务
 func (server *Service) getFileInfoFromLevelDB(key string) (*en.FileInfo, error) {
 	var (
@@ -60,7 +61,7 @@ func (server *Service) saveFileInfoToLevelDB(key string, fileInfo *en.FileInfo, 
 		// search slow ,write fast, double write logDB (搜索速度慢，写入速度快，双写入日志数据库)
 		logDate := util.GetDayFromTimeStamp(fileInfo.TimeStamp)
 		logKey := fmt.Sprintf("%s_%s_%s", logDate, CONST_FILE_Md5_FILE_NAME, fileInfo.Md5)
-		server.logDB.Put([]byte(logKey), data, nil)
+		_ = server.logDB.Put([]byte(logKey), data, nil)
 	}
 	return fileInfo, nil
 }
@@ -105,7 +106,7 @@ func (server *Service) processUploadFile(file multipart.File, header *multipart.
 		}
 	}
 	if !util.FileExists(folder) {
-		os.MkdirAll(folder, 0775)
+		_ = os.MkdirAll(folder, 0775)
 	}
 	outPath := fmt.Sprintf(folder+"/%s", fileInfo.Name)
 	if fileInfo.ReName != "" {
@@ -125,16 +126,17 @@ func (server *Service) processUploadFile(file multipart.File, header *multipart.
 		return fileInfo, err
 	}
 	defer outFile.Close()
+	//
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 		return fileInfo, errors.New("(error)fail," + err.Error())
 	}
 	if _, err = io.Copy(outFile, file); err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 		return fileInfo, errors.New("(error)fail," + err.Error())
 	}
 	if fi, err = outFile.Stat(); err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	} else {
 		fileInfo.Size = fi.Size()
 	}
@@ -176,7 +178,7 @@ func (server *Service) saveSmallFile(fileInfo *en.FileInfo) error {
 	fpath = DOCKER_DIR + fileInfo.Path + "/" + filename
 	largeDir = LARGE_DIR + "/" + peerId
 	if !util.FileExists(largeDir) {
-		os.MkdirAll(largeDir, 0775)
+		_ = os.MkdirAll(largeDir, 0775)
 	}
 	reName = fmt.Sprintf("%d", util.RandInt(100, 300))
 	destPath = largeDir + "/" + reName
@@ -208,8 +210,8 @@ func (server *Service) saveSmallFile(fileInfo *en.FileInfo) error {
 		if _, err = io.Copy(desFile, srcFile); err != nil {
 			return err
 		}
-		srcFile.Close()
-		os.Remove(fpath)
+		_ = srcFile.Close()
+		_ = os.Remove(fpath)
 		fileInfo.Path = strings.Replace(largeDir, DOCKER_DIR, "", 1)
 	}
 	return nil
@@ -232,9 +234,9 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 	defer func() {
 		if re := recover(); re != nil {
 			buffer := debug.Stack()
-			slog.Error("postFileToPeer")
-			slog.Error(re)
-			slog.Error(string(buffer))
+			_ = slog.Error("postFileToPeer")
+			_ = slog.Error(re)
+			_ = slog.Error(string(buffer))
 		}
 	}()
 	//fmt.Println("postFile",fileInfo)
@@ -255,7 +257,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 		}
 		fpath = DOCKER_DIR + fileInfo.Path + "/" + filename
 		if !util.FileExists(fpath) {
-			slog.Warn(fmt.Sprintf("file '%s' not found", fpath))
+			_ = slog.Warn(fmt.Sprintf("file '%s' not found", fpath))
 			continue
 		} else {
 			if fileInfo.Size == 0 {
@@ -272,7 +274,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 			if info, err = server.checkPeerFileExist(peer, fileInfo.Md5, ""); info.Md5 != "" {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
 				if _, err = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 				}
 				continue
 			}
@@ -281,7 +283,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 		b := httplib.Post(postURL)
 		b.SetTimeout(time.Second*30, time.Second*30)
 		if data, err = json.Marshal(fileInfo); err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 			return
 		}
 		b.Param("fileInfo", string(data))
@@ -291,7 +293,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 				fileInfo.Retry = fileInfo.Retry + 1
 				server.appendToQueue(fileInfo)
 			}
-			slog.Error(err, fmt.Sprintf(" path:%s", fileInfo.Path+"/"+fileInfo.Name))
+			_ = slog.Error(err, fmt.Sprintf(" path:%s", fileInfo.Path+"/"+fileInfo.Name))
 		}
 		if !strings.HasPrefix(result, "http://") || err != nil {
 			server.AppendToFileMd5LogQueue(fileInfo, CONST_Md5_ERROR_FILE_NAME)
@@ -301,12 +303,12 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 			if !util.Contains(peer, fileInfo.Peers) {
 				fileInfo.Peers = append(fileInfo.Peers, peer)
 				if _, err = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
-					slog.Error(err)
+					_ = slog.Error(err)
 				}
 			}
 		}
 		if err != nil {
-			slog.Error(err)
+			_ = slog.Error(err)
 		}
 	}
 }
