@@ -46,6 +46,7 @@ const (
 	CONST_REMOME_Md5_FILE_NAME     = "removes.md5"
 	CONST_MESSAGE_CLUSTER_IP       = "Can only be called by the cluster ip or 127.0.0.1 or admin_ips(cfg.json),current ip:%s"
 	GO_FASTDFS_IP                  = "GO_FASTDFS_IP"
+	Go_FastDFS                     = "Go-FastDFS"
 )
 
 //

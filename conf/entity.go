@@ -11,7 +11,7 @@ import (
 
 // 全局配置
 type GlobalConfig struct {
-	Host                string   `json:"host"`                  // 本地主机(HTTP)地址
+	Host                string   `json:"host"`                  // 本地主机(HTTP)地址, http://ip:port
 	Addr                string   `json:"addr"`                  // 绑定监听端口号
 	Group               string   `json:"group"`                 // 集群分组名, 根据分组名区分集群
 	Peers               []string `json:"peers"`                 // 集群列表

@@ -152,7 +152,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		server.AppendToFileMd5LogQueue(&fileInfo, CONST_FILE_Md5_FILE_NAME) //maybe slow
+		server.appendToFileMd5LogQueue(&fileInfo, CONST_FILE_Md5_FILE_NAME) //maybe slow
 		go server.postFileToPeer(&fileInfo)
 		if fileInfo.Size <= 0 {
 			_ = slog.Error("file size is zero")
@@ -542,7 +542,7 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 			_ = slog.Warn(err)
 			return
 		}
-		server.AppendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
+		server.appendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
 		return
 	}
 	if err = req.ToFile(fpathTmp); err != nil {
@@ -572,6 +572,6 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 		return
 	}
 	if os.Rename(fpathTmp, fpath) == nil {
-		server.AppendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
+		server.appendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
 	}
 }

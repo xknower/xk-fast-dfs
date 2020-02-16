@@ -296,7 +296,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 			_ = slog.Error(err, fmt.Sprintf(" path:%s", fileInfo.Path+"/"+fileInfo.Name))
 		}
 		if !strings.HasPrefix(result, "http://") || err != nil {
-			server.AppendToFileMd5LogQueue(fileInfo, CONST_Md5_ERROR_FILE_NAME)
+			server.appendToFileMd5LogQueue(fileInfo, CONST_Md5_ERROR_FILE_NAME)
 		}
 		if strings.HasPrefix(result, "http://") {
 			slog.Info(result)

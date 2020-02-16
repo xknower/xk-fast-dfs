@@ -46,7 +46,7 @@ func (server *Service) Start() {
 // isReload 是否为重新加载
 // ---------- ---------- ----------
 func (server *Service) initComponent(isReload bool) {
-	// -> IP
+	// -> IP , 获取本机IP地址
 	var ip string
 	if ip := os.Getenv(GO_FASTDFS_IP); ip == "" {
 		ip = util.GetPulicIP()
@@ -54,8 +54,8 @@ func (server *Service) initComponent(isReload bool) {
 	// -> HOST
 	if host == "" {
 		if len(strings.Split(addr, ":")) == 2 {
-			server.host = fmt.Sprintf("http://%s:%s", ip, strings.Split(addr, ":")[1])
-			host = server.host
+			host = fmt.Sprintf("http://%s:%s", ip, strings.Split(addr, ":")[1])
+			server.host = host
 		}
 	} else {
 		if strings.HasPrefix(host, "http") {
@@ -209,10 +209,9 @@ func (server *Service) startComponent() {
 // 检测状态文件(stat.json)并格式化
 func (server *Service) formatStatInfo() {
 	var (
-		data  []byte
-		err   error
-		count int64
-		stat  map[string]interface{}
+		err  error
+		data []byte
+		stat map[string]interface{}
 	)
 	if util.FileExists(CONST_STAT_FILE_NAME) {
 		if data, err = util.ReadBinFile(CONST_STAT_FILE_NAME); err != nil {
@@ -221,6 +220,7 @@ func (server *Service) formatStatInfo() {
 			if err = json.Unmarshal(data, &stat); err != nil {
 				_ = slog.Error(err)
 			} else {
+				var count int64
 				for k, v := range stat {
 					switch v.(type) {
 					case float64:
@@ -243,6 +243,13 @@ func (server *Service) formatStatInfo() {
 
 //
 func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
+	var (
+		err       error
+		fileInfo  en.FileInfo
+		fileCount int64
+		fileSize  int64
+		stat      en.StatDateFileInfo
+	)
 	defer func() {
 		if re := recover(); re != nil {
 			buffer := debug.Stack()
@@ -251,15 +258,7 @@ func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
 			_ = slog.Error(string(buffer))
 		}
 	}()
-	var (
-		err       error
-		keyPrefix string
-		fileInfo  en.FileInfo
-		fileCount int64
-		fileSize  int64
-		stat      en.StatDateFileInfo
-	)
-	keyPrefix = "%s_%s_"
+	keyPrefix := "%s_%s_"
 	keyPrefix = fmt.Sprintf(keyPrefix, date, CONST_FILE_Md5_FILE_NAME)
 	iter := server.logDB.NewIterator(dbutil.BytesPrefix([]byte(keyPrefix)), nil)
 	defer iter.Release()
@@ -500,7 +499,7 @@ func (server *Service) initTus() {
 					//assosiate file id
 					_ = slog.Error(err)
 				}
-				server.AppendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
+				server.appendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
 				//
 				go server.postFileToPeer(fileInfo)
 				callBack := func(info tusd.FileInfo, fileInfo *en.FileInfo) {

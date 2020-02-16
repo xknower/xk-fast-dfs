@@ -56,7 +56,7 @@ func NewService() (server *Service, err error) {
 		MaxIdleConnsPerHost: 100,
 	}
 	settings := httplib.BeegoHTTPSettings{
-		UserAgent:        "Go-FastDFS",
+		UserAgent:        Go_FastDFS,
 		ConnectTimeout:   15 * time.Second,
 		ReadWriteTimeout: 15 * time.Second,
 		Gzip:             true,

@@ -117,7 +117,7 @@ func (server Service) SaveFileInfoToLevelDB(key string, fileInfo *en.FileInfo, d
 }
 
 func (server Service) SaveFileMd5Log(fileInfo *en.FileInfo, filename string) {
-	server.AppendToFileMd5LogQueue(fileInfo, filename)
+	server.appendToFileMd5LogQueue(fileInfo, filename)
 }
 
 func (server Service) BackUpMetaDataByDate(date string) {

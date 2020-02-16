@@ -25,11 +25,9 @@ func (server *Service) appendToQueue(fileInfo *en.FileInfo) {
 }
 
 // 文件日志处理队列 -> 文件处理信息加入日志队列
-func (server *Service) AppendToFileMd5LogQueue(fileInfo *en.FileInfo, filename string) {
-	var info en.FileInfo
+func (server *Service) appendToFileMd5LogQueue(fileInfo *en.FileInfo, filename string) {
 	for len(server.queueFileLog)+len(server.queueFileLog)/10 > CONST_QUEUE_SIZE {
 		time.Sleep(time.Second * 1)
 	}
-	info = *fileInfo
-	server.queueFileLog <- &en.FileLog{FileInfo: &info, FileName: filename}
+	server.queueFileLog <- &en.FileLog{FileInfo: fileInfo, FileName: filename}
 }
