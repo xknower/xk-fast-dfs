@@ -37,7 +37,7 @@ func (server *Service) getFileInfoFromLevelDB(key string) (*en.FileInfo, error) 
 	return &fileInfo, nil
 }
 
-// 判断文件是否存在
+// 文件文件Hash, 判断文件在数据库是否存在
 func (server *Service) isExistFromLevelDB(key string, db *leveldb.DB) (bool, error) {
 	return db.Has([]byte(key), nil)
 }
@@ -66,7 +66,7 @@ func (server *Service) saveFileInfoToLevelDB(key string, fileInfo *en.FileInfo, 
 	return fileInfo, nil
 }
 
-// 数据库中删除文件
+// 根据文件Hash, 从数据库删除文件
 func (server *Service) removeKeyFromLevelDB(key string, db *leveldb.DB) error {
 	return db.Delete([]byte(key), nil)
 }
@@ -80,6 +80,7 @@ func (server *Service) processUploadFile(file multipart.File, header *multipart.
 		fi      os.FileInfo
 	)
 	defer file.Close()
+
 	_, fileInfo.Name = filepath.Split(header.Filename)
 	// bugfix for ie upload file contain fullpath
 	if len(extensions) > 0 && !util.Contains(path.Ext(fileInfo.Name), extensions) {
@@ -147,7 +148,7 @@ func (server *Service) processUploadFile(file multipart.File, header *multipart.
 	if enableDistinctFile {
 		v = util.GetFileSum(outFile, fileSumArithmetic)
 	} else {
-		v = util.MD5(server.GetFilePathByInfo(fileInfo, false))
+		v = util.MD5(server.analyseFilePathByInfo(fileInfo, false))
 	}
 	fileInfo.Md5 = v
 	//fileInfo.Path = folder //strings.Replace( folder,DOCKER_DIR,"",1)
@@ -217,7 +218,7 @@ func (server *Service) saveSmallFile(fileInfo *en.FileInfo) error {
 	return nil
 }
 
-// 文件保存到集群
+// 文件保存到集群 (文件上传处理队列)
 func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 	var (
 		err      error
@@ -279,7 +280,7 @@ func (server *Service) postFileToPeer(fileInfo *en.FileInfo) {
 				continue
 			}
 		}
-		postURL = fmt.Sprintf("%s%s", peer, server.getRequestURI("syncfile_info"))
+		postURL = fmt.Sprintf("%s%s", peer, server.analyseRequestURI("syncfile_info"))
 		b := httplib.Post(postURL)
 		b.SetTimeout(time.Second*30, time.Second*30)
 		if data, err = json.Marshal(fileInfo); err != nil {

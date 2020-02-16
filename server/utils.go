@@ -15,7 +15,7 @@ import (
 )
 
 // 构建请求URL
-func (server *Service) getRequestURI(action string) string {
+func (server *Service) analyseRequestURI(action string) string {
 	var uri string
 	if supportGroupManage {
 		uri = "/" + group + "/" + action
@@ -123,12 +123,12 @@ func (server *Service) checkAuth(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-//
-func (server *Service) checkPeerFileExist(peer string, md5sum string, fpath string) (*en.FileInfo, error) {
+// 检测文件在集群某个节点是否存在  [peer, md5sum, path]
+func (server *Service) checkPeerFileExist(peer string, md5sum string, path string) (*en.FileInfo, error) {
 	var fileInfo en.FileInfo
-
-	req := httplib.Post(fmt.Sprintf("%s%s?md5=%s", peer, server.getRequestURI("check_file_exist"), md5sum))
-	req.Param("path", fpath)
+	//
+	req := httplib.Post(fmt.Sprintf("%s%s?md5=%s", peer, server.analyseRequestURI("check_file_exist"), md5sum))
+	req.Param("path", path)
 	req.Param("md5", md5sum)
 	req.SetTimeout(time.Second*5, time.Second*10)
 	if err := req.ToJSON(&fileInfo); err != nil {
@@ -140,27 +140,27 @@ func (server *Service) checkPeerFileExist(peer string, md5sum string, fpath stri
 	return &fileInfo, nil
 }
 
-//
+// 根据文件信息, 查询文件是否存在
 func (server *Service) checkFileExistByInfo(md5s string, fileInfo *en.FileInfo) bool {
 	var (
-		err      error
-		fullpath string
-		fi       os.FileInfo
-		info     *en.FileInfo
+		err  error
+		fi   os.FileInfo
+		info *en.FileInfo
 	)
 	if fileInfo == nil {
 		return false
 	}
 	if fileInfo.OffSet >= 0 {
-		//small file
+		// small file
 		if info, err = server.getFileInfoFromLevelDB(fileInfo.Md5); err == nil && info.Md5 == fileInfo.Md5 {
 			return true
 		} else {
 			return false
 		}
 	}
-	fullpath = server.GetFilePathByInfo(fileInfo, true)
-	if fi, err = os.Stat(fullpath); err != nil {
+	//
+	fullPath := server.analyseFilePathByInfo(fileInfo, true)
+	if fi, err = os.Stat(fullPath); err != nil {
 		return false
 	}
 	if fi.Size() == fileInfo.Size {

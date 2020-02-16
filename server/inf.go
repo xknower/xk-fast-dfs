@@ -80,7 +80,7 @@ func (server Service) DownloadFromPeer(peer string, fileInfo *en.FileInfo) {
 }
 
 func (server Service) GetRequestURI(action string) string {
-	return server.getRequestURI(action)
+	return server.analyseRequestURI(action)
 }
 
 func (server Service) GetMd5sByDate(date string, filename string) (mapset.Set, error) {

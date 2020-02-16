@@ -11,8 +11,8 @@ type FileInfo struct {
 	Peers     []string `json:"peers"`  // 文件存在的集群节点
 	Scene     string   `json:"scene"`
 	TimeStamp int64    `json:"timeStamp"` // 文件时间戳
-	OffSet    int64    `json:"offset"`    //
-	Retry     int
+	OffSet    int64    `json:"offset"`    // >=0 small file, -2, -1
+	Retry     int      // 重试次数计数器 (文件下载)
 	Op        string
 }
 

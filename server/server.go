@@ -156,29 +156,29 @@ func (server *Service) startComponent() {
 		}
 	}()
 
-	// 01 开启服务 -> 定期清理及备份数据服务
+	// 01 开启服务 -> 定义清理数据与处理文件元数据和日志信息
 	go server.cleanAndBackUp()
 	// 02 开启服务 -> 检测集群状态服务
 	go server.checkClusterStatus()
-	// 03 开启服务
+	// 03 开启服务 -> 检测处理队列文件信息, 并加如处理队列等待处理 (重启)
 	go server.loadQueueSendToPeer()
-	// 04 开启服务
+	// 04 开启服务 -> 开启多个 syncWorker, 处理文件上传处理队列
 	go server.consumerPostToPeer()
-	// 05 开启服务 -> 处理日志队列服务
+	// 05 开启服务 -> 开启处理, 文件日志处理队列
 	go server.consumerLog()
-	// 06 开启服务 -> 处理文件下载队列服务
+	// 06 开启服务 -> 开启多个 syncWorker, 处理文件下载处理队列
 	go server.consumerDownLoad()
-	// 07 开启服务 -> 处理文件上传队列服务
+	// 07 开启服务 -> 开启多个 uploadWorker, 处理HTTP文件上传处理队列
 	go server.consumerUpload()
 	// 08 开启服务 -> 清除过期(下载)文件服务
 	go server.removeDownloading()
 
 	// 支持按组(集群)管理
 	if enableFsnotify {
-		// 09 开启服务 -> 监控文件变更服务
+		// 09 开启服务 -> 监控文件变更并处理
 		go server.watchFilesChange()
 	}
-	// 10 开启服务 ->
+	// 10 开启服务 -> 加载搜索字典文件
 	go server.loadSearchDict()
 
 	if enableMigrate {
@@ -316,19 +316,23 @@ func (server *Service) initTus() {
 	var (
 		err     error
 		fileLog *os.File
-		bigDir  string
 	)
-	BIG_DIR := STORE_DIR + "/_big/" + peerId
-	_ = os.MkdirAll(BIG_DIR, 0775)
+	bigDir := CONST_BIG_UPLOAD_PATH_SUFFIX
+	if supportGroupManage {
+		bigDir = fmt.Sprintf("/%s%s", group, CONST_BIG_UPLOAD_PATH_SUFFIX)
+	}
+	//
+	bigStoreDir := STORE_DIR + "/_big/" + peerId
+	_ = os.MkdirAll(bigStoreDir, 0775)
 	_ = os.MkdirAll(LOG_DIR, 0775)
 	store := filestore.FileStore{
-		Path: BIG_DIR,
+		Path: bigStoreDir,
 	}
+	//
 	if fileLog, err = os.OpenFile(LOG_DIR+"/tusd.log", os.O_CREATE|os.O_RDWR, 0666); err != nil {
 		_ = slog.Error(err)
 		panic("initTus")
 	}
-
 	go func() {
 		for {
 			if fi, err := fileLog.Stat(); err != nil {
@@ -345,17 +349,16 @@ func (server *Service) initTus() {
 			time.Sleep(time.Second * 30)
 		}
 	}()
+
+	//
 	l := log.New(fileLog, "[tusd] ", log.LstdFlags)
-	bigDir = CONST_BIG_UPLOAD_PATH_SUFFIX
-	if supportGroupManage {
-		bigDir = fmt.Sprintf("/%s%s", group, CONST_BIG_UPLOAD_PATH_SUFFIX)
-	}
+	//
 	composer := tusd.NewStoreComposer()
 	// support raw tus upload and download
 	store.GetReaderExt = func(id string) (io.Reader, error) {
 		var (
-			offset int64
 			err    error
+			offset int64
 			length int
 			buffer []byte
 			fi     *en.FileInfo
@@ -404,14 +407,16 @@ func (server *Service) initTus() {
 			return nil, errors.New(fmt.Sprintf("%s not found", fp))
 		}
 	}
-
 	store.UseIn(composer)
-	SetupPreHooks := func(composer *tusd.StoreComposer) {
+
+	//
+	SetupPreHooksFunc := func(composer *tusd.StoreComposer) {
 		composer.UseCore(en.HookDataStore{
 			DataStore: composer.Core,
 		})
 	}
-	SetupPreHooks(composer)
+	SetupPreHooksFunc(composer)
+
 	handler, err := tusd.NewHandler(tusd.Config{
 		Logger:                  l,
 		BasePath:                bigDir,
@@ -419,9 +424,12 @@ func (server *Service) initTus() {
 		NotifyCompleteUploads:   true,
 		RespectForwardedHeaders: true,
 	})
-	notify := func(handler *tusd.Handler) {
+
+	//
+	NotifyFunc := func(handler *tusd.Handler) {
 		for {
 			select {
+			// 获取已经上传完成的数据 -> FileInfo
 			case info := <-handler.CompleteUploads:
 				slog.Info("CompleteUploads", info)
 				name := ""
@@ -438,8 +446,8 @@ func (server *Service) initTus() {
 				}
 				var err error
 				md5sum := ""
-				oldFullPath := BIG_DIR + "/" + info.ID + ".bin"
-				infoFullPath := BIG_DIR + "/" + info.ID + ".info"
+				oldFullPath := bigStoreDir + "/" + info.ID + ".bin"
+				infoFullPath := bigStoreDir + "/" + info.ID + ".info"
 				if md5sum, err = util.GetFileSumByName(oldFullPath, fileSumArithmetic); err != nil {
 					_ = slog.Error(err)
 					continue
@@ -453,19 +461,19 @@ func (server *Service) initTus() {
 					filename = md5sum + ext
 				}
 				timeStamp := time.Now().Unix()
-				fpath := time.Now().Format("/20060102/15/04/")
+				fPath := time.Now().Format("/20060102/15/04/")
 				if pathCustom != "" {
-					fpath = "/" + strings.Replace(pathCustom, ".", "", -1) + "/"
+					fPath = "/" + strings.Replace(pathCustom, ".", "", -1) + "/"
 				}
-				newFullPath := STORE_DIR + "/" + scene + fpath + peerId + "/" + filename
+				newFullPath := STORE_DIR + "/" + scene + fPath + peerId + "/" + filename
 				if pathCustom != "" {
-					newFullPath = STORE_DIR + "/" + scene + fpath + filename
+					newFullPath = STORE_DIR + "/" + scene + fPath + filename
 				}
 				if fi, err := server.getFileInfoFromLevelDB(md5sum); err != nil {
 					_ = slog.Error(err)
 				} else {
-					tpath := server.GetFilePathByInfo(fi, true)
-					if fi.Md5 != "" && util.FileExists(tpath) {
+					tPath := server.analyseFilePathByInfo(fi, true)
+					if fi.Md5 != "" && util.FileExists(tPath) {
 						if _, err := server.saveFileInfoToLevelDB(info.ID, fi, server.ldb); err != nil {
 							_ = slog.Error(err)
 						}
@@ -477,11 +485,11 @@ func (server *Service) initTus() {
 						continue
 					}
 				}
-				fpath = STORE_DIR_NAME + "/" + defaultScene + fpath + peerId
-				os.MkdirAll(DOCKER_DIR+fpath, 0775)
+				fPath = STORE_DIR_NAME + "/" + defaultScene + fPath + peerId
+				_ = os.MkdirAll(DOCKER_DIR+fPath, 0775)
 				fileInfo := &en.FileInfo{
 					Name:      name,
-					Path:      fpath,
+					Path:      fPath,
 					ReName:    filename,
 					Size:      info.Size,
 					TimeStamp: timeStamp,
@@ -496,15 +504,18 @@ func (server *Service) initTus() {
 				slog.Info(fileInfo)
 				_ = os.Remove(infoFullPath)
 				if _, err = server.saveFileInfoToLevelDB(info.ID, fileInfo, server.ldb); err != nil {
-					//assosiate file id
+					// assosiate file id
 					_ = slog.Error(err)
 				}
+				// 文件处理信息加入日志处理队列
 				server.appendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
-				//
+				// 文件保存到集群
 				go server.postFileToPeer(fileInfo)
-				callBack := func(info tusd.FileInfo, fileInfo *en.FileInfo) {
-					if callback_url, ok := info.MetaData["callback_url"]; ok {
-						req := httplib.Post(callback_url)
+
+				//
+				CallBackFunc := func(info tusd.FileInfo, fileInfo *en.FileInfo) {
+					if url, ok := info.MetaData["callback_url"]; ok {
+						req := httplib.Post(url)
 						req.SetTimeout(time.Second*10, time.Second*10)
 						req.Param("info", util.JsonEncodePretty(fileInfo))
 						req.Param("id", info.ID)
@@ -513,23 +524,24 @@ func (server *Service) initTus() {
 						}
 					}
 				}
-				go callBack(info, fileInfo)
+				go CallBackFunc(info, fileInfo)
 			}
 		}
 	}
-	go notify(handler)
+
+	//
+	go NotifyFunc(handler)
 	if err != nil {
 		_ = slog.Error(err)
 	}
+
+	// Web Handler Interface -> /big/upload/
 	http.Handle(bigDir, http.StripPrefix(bigDir, handler))
 }
 
-//
-func (server *Service) GetFilePathByInfo(fileInfo *en.FileInfo, withDocker bool) string {
-	var (
-		fn string
-	)
-	fn = fileInfo.Name
+// 获取文件路径, 文件信息中解析
+func (server *Service) analyseFilePathByInfo(fileInfo *en.FileInfo, withDocker bool) string {
+	fn := fileInfo.Name
 	if fileInfo.ReName != "" {
 		fn = fileInfo.ReName
 	}
@@ -539,17 +551,13 @@ func (server *Service) GetFilePathByInfo(fileInfo *en.FileInfo, withDocker bool)
 	return fileInfo.Path + "/" + fn
 }
 
-//
+// 通过文件信息, 构建文件信息结果数据
 func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileResult {
 	var (
-		outname     string
-		fileResult  en.FileResult
-		p           string
-		downloadUrl string
-		domain      string
-		host        string
+		fileResult en.FileResult
+		domain     string
 	)
-	host = strings.Replace(host, "http://", "", -1)
+	host := strings.Replace(host, "http://", "", -1)
 	if r != nil {
 		host = r.Host
 	}
@@ -565,23 +573,25 @@ func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 	} else {
 		domain = fmt.Sprintf("http://%s", host)
 	}
-	outname = fileInfo.Name
+	//
+	outName := fileInfo.Name
 	if fileInfo.ReName != "" {
-		outname = fileInfo.ReName
+		outName = fileInfo.ReName
 	}
-	p = strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
+	//
+	path := strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
 	if supportGroupManage {
-		p = group + "/" + p + "/" + outname
+		path = group + "/" + path + "/" + outName
 	} else {
-		p = p + "/" + outname
+		path = path + "/" + outName
 	}
-	downloadUrl = fmt.Sprintf("http://%s/%s", host, p)
+	downloadUrl := fmt.Sprintf("http://%s/%s", host, path)
 	if downloadDomain != "" {
-		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, p)
+		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, path)
 	}
 	fileResult.Url = downloadUrl
 	fileResult.Md5 = fileInfo.Md5
-	fileResult.Path = "/" + p
+	fileResult.Path = "/" + path
 	fileResult.Domain = domain
 	fileResult.Scene = fileInfo.Scene
 	fileResult.Size = fileInfo.Size
@@ -592,31 +602,31 @@ func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 	return fileResult
 }
 
-// 重启初始化加载
+// 配置获取设置重启等操作 [cfg, action]
 // ------------------------------------
 func (server *Service) reload(w http.ResponseWriter, r *http.Request) {
 	var (
+		result en.JsonResult
 		data   []byte
 		cfg    conf.GlobalConfig
-		result en.JsonResult
 	)
-	result.Status = "fail"
-	err := r.ParseForm()
 	if !web.IsPeer(r) {
 		_, _ = w.Write([]byte(web.GetClusterNotPermitMessage(r)))
 		return
 	}
+
+	result.Status = "fail"
+	err := r.ParseForm()
 	cfgJson := r.FormValue("cfg")
 	action := r.FormValue("action")
-
-	//
+	// get 获取配置
 	if action == "get" {
 		result.Data = conf.Global()
 		result.Status = "ok"
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	//
+	// set 设置配置, 到配置文件
 	if action == "set" {
 		if cfgJson == "" {
 			result.Message = "(error)parameter cfg(json) require"
@@ -635,7 +645,7 @@ func (server *Service) reload(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	//
+	// reload 重新加载配置
 	if action == "reload" {
 		if data, err = ioutil.ReadFile(CONST_CONF_FILE_NAME); err != nil {
 			result.Message = err.Error()
@@ -647,6 +657,7 @@ func (server *Service) reload(w http.ResponseWriter, r *http.Request) {
 			_, err = w.Write([]byte(util.JsonEncodePretty(result)))
 			return
 		}
+		// 重新解析配置文件
 		conf.ParseConfig(CONST_CONF_FILE_NAME)
 		//server.initComponent(true)
 		result.Status = "ok"

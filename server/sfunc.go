@@ -16,32 +16,28 @@ import (
 	"time"
 )
 
-// 处理文件上传队列服务 -> 上传文件
+// HTTP文件上传处理 (HTTP文件上传处理队列)
 func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 	var (
-		err error
-		ok  bool
-		//		pathname     string
+		err          error
+		ok           bool
 		md5sum       string
-		fileName     string
 		fileInfo     en.FileInfo
 		uploadFile   multipart.File
 		uploadHeader *multipart.FileHeader
-		scene        string
-		output       string
 		fileResult   en.FileResult
 		data         []byte
-		code         string
 		secret       interface{}
 	)
-	output = r.FormValue("output")
+
+	_ = r.ParseForm()
+	output := r.FormValue("output")
 	if enableCrossOrigin {
 		web.CrossOrigin(w, r)
 		if r.Method == http.MethodOptions {
 			return
 		}
 	}
-
 	if authUrl != "" {
 		if !server.checkAuth(w, r) {
 			_ = slog.Warn("auth fail", r.Form)
@@ -53,7 +49,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		// POST -> 上传文件
 		md5sum = r.FormValue("md5")
-		fileName = r.FormValue("filename")
+		fileName := r.FormValue("filename")
 		output = r.FormValue("output")
 		if readOnly {
 			_, _ = w.Write([]byte("(error) readonly"))
@@ -63,8 +59,8 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			fileInfo.Path = r.FormValue("path")
 			fileInfo.Path = strings.Trim(fileInfo.Path, "/")
 		}
-		scene = r.FormValue("scene")
-		code = r.FormValue("code")
+		scene := r.FormValue("scene")
+		code := r.FormValue("code")
 		if scene == "" {
 			//Just for Compatibility
 			scene = r.FormValue("scenes")
@@ -143,7 +139,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		if !enableDistinctFile {
 			// bugfix filecount stat
-			fileInfo.Md5 = util.MD5(server.GetFilePathByInfo(&fileInfo, false))
+			fileInfo.Md5 = util.MD5(server.analyseFilePathByInfo(&fileInfo, false))
 		}
 		if enableMergeSmallFile && fileInfo.Size < CONST_SMALL_FILE_SIZE {
 			// 保存小文件
@@ -196,13 +192,11 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 // 检测文件并加载到处理队列 -> 获取MD5文件中保存的文件信息 | 自动修复文件并同步集群数据服务
 func (server *Service) getMd5sByDate(date string, filename string) (mapset.Set, error) {
 	var (
-		keyPrefix string
-		md5set    mapset.Set
-		keys      []string
+		keys []string
 	)
-	md5set = mapset.NewSet()
-	keyPrefix = "%s_%s_"
-	keyPrefix = fmt.Sprintf(keyPrefix, date, filename)
+	md5set := mapset.NewSet()
+	keyPrefix := fmt.Sprintf("%s_%s_", date, filename)
+	// 根据key, 从数据库查询相关文件信息
 	iter := server.logDB.NewIterator(dbutil.BytesPrefix([]byte(keyPrefix)), nil)
 	for iter.Next() {
 		keys = strings.Split(string(iter.Key()), "_")
@@ -214,7 +208,7 @@ func (server *Service) getMd5sByDate(date string, filename string) (mapset.Set, 
 	return md5set, nil
 }
 
-// 清理 -> 定期清理及备份数据服务
+// 清理(文件处理日志数据库)数据 [date, filename]
 func (server *Service) cleanLogLevelDBByDate(date string, filename string) {
 	defer func() {
 		if re := recover(); re != nil {
@@ -225,19 +219,19 @@ func (server *Service) cleanLogLevelDBByDate(date string, filename string) {
 		}
 	}()
 	var (
-		err       error
-		keyPrefix string
-		keys      mapset.Set
+		err error
 	)
-	keys = mapset.NewSet()
-	keyPrefix = "%s_%s_"
-	keyPrefix = fmt.Sprintf(keyPrefix, date, filename)
+	keys := mapset.NewSet()
+	keyPrefix := fmt.Sprintf("%s_%s_", date, filename)
+	//
 	iter := server.logDB.NewIterator(dbutil.BytesPrefix([]byte(keyPrefix)), nil)
 	for iter.Next() {
 		keys.Add(string(iter.Value()))
 	}
 	iter.Release()
+	//
 	for key := range keys.Iter() {
+		// 清楚数据, 文件处理日志数据库
 		err = server.removeKeyFromLevelDB(key.(string), server.logDB)
 		if err != nil {
 			_ = slog.Error(err)
@@ -245,7 +239,7 @@ func (server *Service) cleanLogLevelDBByDate(date string, filename string) {
 	}
 }
 
-// 备份 -> 定期清理及备份数据服务
+// 整理日志和元数据 -> 根据查询文件信息数据, 处理文件日志信息数据和文件元数据
 func (server *Service) backUpMetaDataByDate(date string) {
 	defer func() {
 		if re := recover(); re != nil {
@@ -256,25 +250,22 @@ func (server *Service) backUpMetaDataByDate(date string) {
 		}
 	}()
 	var (
-		err          error
-		keyPrefix    string
-		msg          string
-		name         string
-		fileInfo     en.FileInfo
-		logFileName  string
-		fileLog      *os.File
-		fileMeta     *os.File
-		metaFileName string
-		fi           os.FileInfo
+		err      error
+		fileInfo en.FileInfo // 文件信息数据
+		fileLog  *os.File    // 文件处理日志文件
+		fileMeta *os.File    // 文件元数据文件
 	)
-	logFileName = DATA_DIR + "/" + date + "/" + CONST_FILE_Md5_FILE_NAME
+	logFileName := DATA_DIR + "/" + date + "/" + CONST_FILE_Md5_FILE_NAME
+	metaFileName := DATA_DIR + "/" + date + "/" + "meta.data"
+
 	server.lockMap.LockKey(logFileName)
 	defer server.lockMap.UnLockKey(logFileName)
-	metaFileName = DATA_DIR + "/" + date + "/" + "meta.data"
+
 	_ = os.MkdirAll(DATA_DIR+"/"+date, 0775)
 	if util.IsExist(logFileName) {
 		_ = os.Remove(logFileName)
 	}
+
 	if util.IsExist(metaFileName) {
 		_ = os.Remove(metaFileName)
 	}
@@ -290,19 +281,19 @@ func (server *Service) backUpMetaDataByDate(date string) {
 		return
 	}
 	defer fileMeta.Close()
-	keyPrefix = "%s_%s_"
-	keyPrefix = fmt.Sprintf(keyPrefix, date, CONST_FILE_Md5_FILE_NAME)
+
+	keyPrefix := fmt.Sprintf("%s_%s_", date, CONST_FILE_Md5_FILE_NAME)
 	iter := server.logDB.NewIterator(dbutil.BytesPrefix([]byte(keyPrefix)), nil)
 	defer iter.Release()
 	for iter.Next() {
 		if err = json.Unmarshal(iter.Value(), &fileInfo); err != nil {
 			continue
 		}
-		name = fileInfo.Name
+		name := fileInfo.Name
 		if fileInfo.ReName != "" {
 			name = fileInfo.ReName
 		}
-		msg = fmt.Sprintf("%s\t%s\n", fileInfo.Md5, string(iter.Value()))
+		msg := fmt.Sprintf("%s\t%s\n", fileInfo.Md5, string(iter.Value()))
 		if _, err = fileMeta.WriteString(msg); err != nil {
 			_ = slog.Error(err)
 		}
@@ -315,6 +306,8 @@ func (server *Service) backUpMetaDataByDate(date string) {
 			_ = slog.Error(err)
 		}
 	}
+
+	var fi os.FileInfo
 	if fi, err = fileLog.Stat(); err != nil {
 		_ = slog.Error(err)
 	} else if fi.Size() == 0 {
@@ -359,7 +352,7 @@ func (server *Service) loadFileInfoByDate(date string, filename string) (mapset.
 	return fileInfos, nil
 }
 
-// 保存操作文件信息日志 -> 处理日志队列服务
+// 保存操作文件信息日志 -> 文件日志处理队列
 func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 	var (
 		err      error
@@ -430,17 +423,13 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 	_, _ = server.saveFileInfoToLevelDB(logKey, fileInfo, server.logDB)
 }
 
-// 从集群中下载文件 -> 处理文件下载队列服务
+// 下载文件(从集群其他节点) -> (文件下载处理队列)
 func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	var (
-		err         error
-		filename    string
-		fpath       string
-		fpathTmp    string
-		fi          os.FileInfo
-		sum         string
-		data        []byte
-		downloadUrl string
+		err  error
+		fi   os.FileInfo
+		sum  string
+		data []byte
 	)
 	if readOnly {
 		_ = slog.Warn("ReadOnly", fileInfo)
@@ -452,77 +441,93 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	} else {
 		fileInfo.Retry = fileInfo.Retry + 1
 	}
-	filename = fileInfo.Name
+
+	//
+	filename := fileInfo.Name
 	if fileInfo.ReName != "" {
 		filename = fileInfo.ReName
 	}
+	// 检测文件是否存在 (文件去重)
 	if fileInfo.OffSet != -2 && enableDistinctFile && server.checkFileExistByInfo(fileInfo.Md5, fileInfo) {
 		// ignore migrate file
 		slog.Info(fmt.Sprintf("DownloadFromPeer file Exist, path:%s", fileInfo.Path+"/"+fileInfo.Name))
 		return
 	}
-	if (!enableDistinctFile || fileInfo.OffSet == -2) && util.FileExists(server.GetFilePathByInfo(fileInfo, true)) {
+	// 检测文件是否存在 (文件不去重)
+	pathTmp := server.analyseFilePathByInfo(fileInfo, true)
+	if (!enableDistinctFile || fileInfo.OffSet == -2) && util.FileExists(pathTmp) {
 		// ignore migrate file
-		if fi, err = os.Stat(server.GetFilePathByInfo(fileInfo, true)); err == nil {
+		if fi, err = os.Stat(pathTmp); err == nil {
 			if fi.ModTime().Unix() > fileInfo.TimeStamp {
-				slog.Info(fmt.Sprintf("ignore file sync path:%s", server.GetFilePathByInfo(fileInfo, false)))
+				slog.Info(fmt.Sprintf("ignore file sync path:%s", server.analyseFilePathByInfo(fileInfo, false)))
 				fileInfo.TimeStamp = fi.ModTime().Unix()
+				// 检测本地文件修改时间将最新版本发布到集群
 				server.postFileToPeer(fileInfo) // keep newer
 				return
 			}
-			_ = os.Remove(server.GetFilePathByInfo(fileInfo, true))
+			_ = os.Remove(pathTmp)
 		}
 	}
+
+	//
 	if _, err = os.Stat(fileInfo.Path); err != nil {
 		_ = os.MkdirAll(DOCKER_DIR+fileInfo.Path, 0775)
 	}
 	//fmt.Println("downloadFromPeer",fileInfo)
 	p := strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
 	//filename= util.UrlEncode(filename)
-	downloadUrl = peer + "/" + group + "/" + p + "/" + filename
+	downloadUrl := peer + "/" + group + "/" + p + "/" + filename
 	slog.Info("DownloadFromPeer: ", downloadUrl)
-	fpath = DOCKER_DIR + fileInfo.Path + "/" + filename
-	fpathTmp = DOCKER_DIR + fileInfo.Path + "/" + fmt.Sprintf("%s_%s", "tmp_", filename)
+	fPath := DOCKER_DIR + fileInfo.Path + "/" + filename
+	fPathTmp := DOCKER_DIR + fileInfo.Path + "/" + fmt.Sprintf("%s_%s", "tmp_", filename)
 	timeout := fileInfo.Size/1024/1024/1 + 30
 	if syncTimeout > 0 {
 		timeout = syncTimeout
 	}
-	server.lockMap.LockKey(fpath)
-	defer server.lockMap.UnLockKey(fpath)
-	download_key := fmt.Sprintf("downloading_%d_%s", time.Now().Unix(), fpath)
-	_ = server.ldb.Put([]byte(download_key), []byte(""), nil)
+
+	server.lockMap.LockKey(fPath)
+	defer server.lockMap.UnLockKey(fPath)
+	downloadKey := fmt.Sprintf("downloading_%d_%s", time.Now().Unix(), fPath)
+	_ = server.ldb.Put([]byte(downloadKey), []byte(""), nil)
 	defer func() {
-		_ = server.ldb.Delete([]byte(download_key), nil)
+		_ = server.ldb.Delete([]byte(downloadKey), nil)
 	}()
+
 	if fileInfo.OffSet == -2 {
 		//migrate file
-		if fi, err = os.Stat(fpath); err == nil && fi.Size() == fileInfo.Size {
+		if fi, err = os.Stat(fPath); err == nil && fi.Size() == fileInfo.Size {
 			//prevent double download
 			_, _ = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb)
 			//slog.Info(fmt.Sprintf("file '%s' has download", fpath))
 			return
 		}
+		//
 		req := httplib.Get(downloadUrl)
 		req.SetTimeout(time.Second*30, time.Second*time.Duration(timeout))
-		if err = req.ToFile(fpathTmp); err != nil {
-			server.appendToDownloadQueue(fileInfo) //retry
-			_ = os.Remove(fpathTmp)
-			_ = slog.Error(err, fpathTmp)
+		if err = req.ToFile(fPathTmp); err != nil {
+			// retry
+			server.appendToDownloadQueue(fileInfo)
+			_ = os.Remove(fPathTmp)
+			_ = slog.Error(err, fPathTmp)
 			return
 		}
-		if os.Rename(fpathTmp, fpath) == nil {
+		//
+		if os.Rename(fPathTmp, fPath) == nil {
 			//server.SaveFileMd5Log(fileInfo, CONST_FILE_Md5_FILE_NAME)
 			_, _ = server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb)
 		}
 		return
 	}
+
+	//
 	req := httplib.Get(downloadUrl)
 	req.SetTimeout(time.Second*30, time.Second*time.Duration(timeout))
 	if fileInfo.OffSet >= 0 {
 		//small file download
 		data, err = req.Bytes()
 		if err != nil {
-			server.appendToDownloadQueue(fileInfo) //retry
+			// retry
+			server.appendToDownloadQueue(fileInfo)
 			_ = slog.Error(err)
 			return
 		}
@@ -536,23 +541,27 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 			_ = slog.Warn("file size is error")
 			return
 		}
-		fpath = strings.Split(fpath, ",")[0]
-		err = util.WriteFileByOffSet(fpath, fileInfo.OffSet, data)
+		fPath = strings.Split(fPath, ",")[0]
+		err = util.WriteFileByOffSet(fPath, fileInfo.OffSet, data)
 		if err != nil {
 			_ = slog.Warn(err)
 			return
 		}
+		//
 		server.appendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
 		return
 	}
-	if err = req.ToFile(fpathTmp); err != nil {
-		server.appendToDownloadQueue(fileInfo) //retry
-		_ = os.Remove(fpathTmp)
+
+	if err = req.ToFile(fPathTmp); err != nil {
+		// retry
+		server.appendToDownloadQueue(fileInfo)
+		_ = os.Remove(fPathTmp)
 		_ = slog.Error(err)
 		return
 	}
-	if fi, err = os.Stat(fpathTmp); err != nil {
-		_ = os.Remove(fpathTmp)
+
+	if fi, err = os.Stat(fPathTmp); err != nil {
+		_ = os.Remove(fPathTmp)
 		return
 	}
 	_ = sum
@@ -568,10 +577,11 @@ func (server *Service) downloadFromPeer(peer string, fileInfo *en.FileInfo) {
 	//}
 	if fi.Size() != fileInfo.Size { //  maybe has bug remove || sum != fileInfo.Md5
 		_ = slog.Error("file sum check error")
-		_ = os.Remove(fpathTmp)
+		_ = os.Remove(fPathTmp)
 		return
 	}
-	if os.Rename(fpathTmp, fpath) == nil {
+
+	if os.Rename(fPathTmp, fPath) == nil {
 		server.appendToFileMd5LogQueue(fileInfo, CONST_FILE_Md5_FILE_NAME)
 	}
 }
