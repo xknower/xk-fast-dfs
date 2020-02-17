@@ -99,7 +99,7 @@ func (hs *HttpServer) initHandler(route string) {
 	}
 
 	// 主页
-	http.HandleFunc(fmt.Sprintf("%s", "/"), hs.Home)
+	http.HandleFunc(fmt.Sprintf("%s", "/"), hs.Home) // 未定义路径, 匹配主页
 	http.HandleFunc(fmt.Sprintf("%s/report", route), hs.ReportHTML)
 	// 上传文件
 	http.HandleFunc(fmt.Sprintf("%s/upload", route), hs.Upload)

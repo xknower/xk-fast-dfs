@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// 检测是否有下载权限
+// 检测是否有下载权限 [token , timestamp, code]
 func (hs *HttpServer) checkDownloadAuth(w http.ResponseWriter, r *http.Request) (bool, error) {
 	var (
 		err      error
@@ -166,15 +166,13 @@ func (hs *HttpServer) downloadFileToResponse(url string, w http.ResponseWriter, 
 }
 
 // ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
-// 下载文件 (下载图片)
+// 下载文件 (下载图片) [download, width, height (设置宽高, 表明是图片)]
 func (hs *HttpServer) downloadNormalIMGFileByURI(w http.ResponseWriter, r *http.Request) (bool, error) {
 	var (
 		err       error
 		imgWidth  int
 		imgHeight int
 	)
-	//
-	_ = r.ParseForm()
 	isDownload := true
 	if r.FormValue("download") == "" {
 		isDownload = defaultDownload
@@ -201,12 +199,14 @@ func (hs *HttpServer) downloadNormalIMGFileByURI(w http.ResponseWriter, r *http.
 		// 执行下载
 		SetDownloadHeader(w, r)
 	}
-	//
+	// 分析文件存储路径
 	fullPath, _ := analyseFilePathFromRequest(w, r)
 	if imgWidth != 0 || imgHeight != 0 {
+		// 下载图片
 		hs.resizeImage(w, fullPath, uint(imgWidth), uint(imgHeight))
 		return true, nil
 	}
+	// 下载文件
 	staticHandler.ServeHTTP(w, r)
 	return true, nil
 }
@@ -251,7 +251,6 @@ func (hs *HttpServer) downloadSmallFileByURI(w http.ResponseWriter, r *http.Requ
 		imgHeight int
 		notFound  bool
 	)
-	_ = r.ParseForm()
 	isDownload := true
 	if r.FormValue("download") == "" {
 		isDownload = defaultDownload

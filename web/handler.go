@@ -69,14 +69,13 @@ func (hs *HttpServer) IndexHTML(w http.ResponseWriter, r *http.Request) {
 func (hs *HttpServer) ReportHTML(w http.ResponseWriter, r *http.Request) {
 	var (
 		result en.JsonResult
-		html   string
 	)
+	fmt.Printf(" 请求地址 => %s \n", r.RequestURI)
 	if !IsPeer(r) {
 		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
 	result.Status = "ok"
-	_ = r.ParseForm()
 	//
 	reportFileName := STATIC_DIR + "/report.html"
 	if util.IsExist(reportFileName) {
@@ -87,7 +86,7 @@ func (hs *HttpServer) ReportHTML(w http.ResponseWriter, r *http.Request) {
 			return
 		} else {
 			// 返回页面
-			html = string(data)
+			html := string(data)
 			if supportGroupManage {
 				html = strings.Replace(html, "{group}", "/"+group, 1)
 			} else {
@@ -101,7 +100,7 @@ func (hs *HttpServer) ReportHTML(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 上传文件
+// 上传文件 [filename 文件名, path 上传路径 , file 文件内容, output=json]
 func (hs *HttpServer) Upload(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -155,12 +154,11 @@ func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
 		hs.s.NotPermit(w, r)
 		return
 	}
-
 	if enableCrossOrigin {
 		// 支持跨域下载文件
 		CrossOrigin(w, r)
 	}
-	// 获取文件路径
+	// 获取文件路径 (fullPath 文件保存文件路径)
 	fullPath, smallPath := analyseFilePathFromRequest(w, r)
 	if smallPath == "" {
 		if fi, err = os.Stat(fullPath); err != nil {
@@ -173,13 +171,11 @@ func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("list dir deny"))
 			return
 		}
-		// 下载一般文件 -> 图片
-		//staticHandler.ServeHTTP(w, r)
+		// 下载文件
 		_, _ = hs.downloadNormalIMGFileByURI(w, r)
 		return
 	}
 	if smallPath != "" {
-		// 使用简短路径, 下载文件
 		if ok, err = hs.downloadSmallFileByURI(w, r); !ok {
 			hs.downloadNotFound(w, r)
 			return
@@ -188,7 +184,7 @@ func (hs *HttpServer) Download(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 检测(多个)文件是否存在, 并返回查询到的文件信息 (通过文件MD5信息检测文件)
+// 检测(多个)文件是否存在, 并返回查询到的文件信息 [md5s 文件标识符, 多个文件用逗号分隔]
 func (hs *HttpServer) CheckFilesExist(w http.ResponseWriter, r *http.Request) {
 	var (
 		err       error
@@ -197,9 +193,7 @@ func (hs *HttpServer) CheckFilesExist(w http.ResponseWriter, r *http.Request) {
 		fileInfos []*en.FileInfo // 查询文件信息列表
 		result    en.JsonResult  // 返回结果
 	)
-	_ = r.ParseForm()
-	md5sum := ""
-	md5sum = r.FormValue("md5s")
+	md5sum := r.FormValue("md5s")
 	md5s := strings.Split(md5sum, ",")
 	for _, m := range md5s {
 		// 数据库中查询文件, 通过文件Hash标识
@@ -241,7 +235,7 @@ func (hs *HttpServer) CheckFilesExist(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-// 检测(单个)文件是否存在, 存在返回文件信息 [md5 文件标识 , path 文件路径]
+// 检测(单个)文件是否存在, 存在返回文件信息 [md5 文件标识 , path 文件(绝对)路径]
 func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 	var (
 		data     []byte
@@ -249,9 +243,7 @@ func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 		fileInfo *en.FileInfo
 		fi       os.FileInfo
 	)
-	r.ParseForm()
-	md5sum := ""
-	md5sum = r.FormValue("md5")
+	md5sum := r.FormValue("md5")
 	fPath := r.FormValue("path")
 	//
 	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5sum); fileInfo != nil {
@@ -283,8 +275,9 @@ func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if fPath != "" {
-			fi, err = os.Stat(fPath)
-			if err == nil {
+			fPath = strings.Replace(fPath, "/"+group+"/", STORE_DIR_NAME+"/", 1)
+			fPath = strings.Replace(fPath, group+"/", STORE_DIR_NAME+"/", 1)
+			if fi, err = os.Stat(fPath); err == nil {
 				sum := util.MD5(fPath)
 				//if Config().EnableDistinctFile {
 				//	sum, err = util.GetFileSumByName(fpath, Config().FileSumArithmetic)
@@ -313,14 +306,13 @@ func (hs *HttpServer) CheckFileExist(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-// 获取文件信息 [md5, path]
+// 获取文件信息 [md5 文件标识符, path 文件完整下载路径]
 func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
 	var (
 		err      error
 		fileInfo *en.FileInfo
 		result   en.JsonResult
 	)
-	_ = r.ParseForm()
 	//
 	md5sum := r.FormValue("md5")
 	fPath := r.FormValue("path")
@@ -331,6 +323,7 @@ func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	if fPath != "" {
 		fPath = strings.Replace(fPath, "/"+group+"/", STORE_DIR_NAME+"/", 1)
+		fPath = strings.Replace(fPath, group+"/", STORE_DIR_NAME+"/", 1)
 		md5sum = util.MD5(fPath)
 	}
 	//
@@ -346,7 +339,7 @@ func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-// 列出资源目录 [dir]
+// 列出目录下文件及目录信息 [dir 显示目录, 为空显示根目录]
 func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
 	var (
 		err         error
@@ -360,7 +353,6 @@ func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	_ = r.ParseForm()
 	dir := r.FormValue("dir")
 	//if dir == "" {
 	//	result.Message = "dir can't null"
@@ -372,8 +364,7 @@ func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
 		dir = tmpDir
 	}
 	// 读取目录, 获取目录列表
-	filesInfo, err = ioutil.ReadDir(DOCKER_DIR + STORE_DIR_NAME + "/" + dir)
-	if err != nil {
+	if filesInfo, err = ioutil.ReadDir(DOCKER_DIR + STORE_DIR_NAME + "/" + dir); err != nil {
 		_ = slog.Error(err)
 		result.Message = err.Error()
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
@@ -397,7 +388,7 @@ func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-// 根据关键字, 搜索含有该关键字名称的文件
+// 根据关键字, 搜索含有该关键字名称的文件 [kw 搜索关键词(匹配文件名中包含该关键词的文件, 为空返回所有文件信息)]
 func (hs *HttpServer) Search(w http.ResponseWriter, r *http.Request) {
 	var (
 		err       error
@@ -405,7 +396,6 @@ func (hs *HttpServer) Search(w http.ResponseWriter, r *http.Request) {
 		fileInfos []en.FileInfo // 搜索到的所有文件的文件信息
 		md5s      []string      // 搜索到的所有的Hash标识
 	)
-	_ = r.ParseForm()
 	// 关键字
 	kw := r.FormValue("kw")
 	if !IsPeer(r) {
@@ -444,7 +434,7 @@ func (hs *HttpServer) Search(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-// 移除文件 [md5, path, inner 操作标识]
+// 移除文件 [md5 文件标识符, path 文件完整路径; 优先使用文件标识符]
 func (hs *HttpServer) RemoveFile(w http.ResponseWriter, r *http.Request) {
 	var (
 		err      error
@@ -456,8 +446,7 @@ func (hs *HttpServer) RemoveFile(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
-	_ = r.ParseForm()
-	md5sum := r.FormValue("md5")
+	md5 := r.FormValue("md5")
 	fPath := r.FormValue("path")
 	inner := r.FormValue("inner") // 操作标识
 	result.Status = "fail"
@@ -466,17 +455,24 @@ func (hs *HttpServer) RemoveFile(w http.ResponseWriter, r *http.Request) {
 		hs.s.NotPermit(w, r)
 		return
 	}
-	if fPath != "" && md5sum == "" {
+	if fPath != "" && md5 == "" {
 		fPath = strings.Replace(fPath, "/"+group+"/", STORE_DIR_NAME+"/", 1)
-		md5sum = util.MD5(fPath)
+		fPath = strings.Replace(fPath, group+"/", STORE_DIR_NAME+"/", 1)
+		md5 = util.MD5(fPath)
 	}
+	if len(md5) < 32 {
+		result.Message = "md5 unvalid"
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
+		return
+	}
+	// 执行异步, 调用集群所有节点执行删除文件接口
 	if inner != "1" {
 		for _, peer := range peers {
-			delFile := func(peer string, md5sum string, fileInfo *en.FileInfo) {
+			DelFileFunc := func(peer string, md5 string, fileInfo *en.FileInfo) {
 				// 遍历集权节点, 构造删除URL, 对集群所有节点进行删除操作
 				delUrl = fmt.Sprintf("%s%s", peer, hs.s.GetRequestURI("delete"))
 				req := httplib.Post(delUrl)
-				req.Param("md5", md5sum)
+				req.Param("md5", md5)
 				req.Param("inner", "1")
 				req.SetTimeout(time.Second*5, time.Second*10)
 				if _, err = req.String(); err != nil {
@@ -484,17 +480,11 @@ func (hs *HttpServer) RemoveFile(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			//
-			go delFile(peer, md5sum, fileInfo)
+			go DelFileFunc(peer, md5, fileInfo)
 		}
 	}
-	//
-	if len(md5sum) < 32 {
-		result.Message = "md5 unvalid"
-		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
-		return
-	}
-	//
-	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5sum); err != nil {
+	// 检测并删除文件
+	if fileInfo, err = hs.s.GetFileInfoFromLevelDB(md5); err != nil {
 		result.Message = err.Error()
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
@@ -548,7 +538,7 @@ func (hs *HttpServer) RemoveEmptyDir(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 根据文件信息, 异步从集群下载文件, 获取文件下载地址 [fileInfo JSON格式]
+// 根据文件信息, 异步从集群下载文件, 获取文件下载地址 (queue.md5) [fileInfo JSON格式]
 func (hs *HttpServer) SyncFileInfo(w http.ResponseWriter, r *http.Request) {
 	var (
 		err      error
@@ -558,7 +548,6 @@ func (hs *HttpServer) SyncFileInfo(w http.ResponseWriter, r *http.Request) {
 	if !IsPeer(r) {
 		return
 	}
-	_ = r.ParseForm()
 	fileInfoStr := r.FormValue("fileInfo")
 	//
 	if err = json.Unmarshal([]byte(fileInfoStr), &fileInfo); err != nil {
@@ -586,7 +575,7 @@ func (hs *HttpServer) SyncFileInfo(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(downloadUrl))
 }
 
-// 异步下载文件 [date, force 是否暴力处理(, inner 操作标识]
+// 异步下载文件(files.md5 , errors.md5) [date 日志, force 是否暴力处理, inner 操作标识]
 func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 	var (
 		result en.JsonResult
@@ -596,8 +585,6 @@ func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	//
-	_ = r.ParseForm()
 	result.Status = "fail"
 	//
 	isForceUpload := false
@@ -616,7 +603,7 @@ func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 			req.Param("inner", "1")
 			req.Param("date", date)
 			if _, err := req.String(); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 			}
 		}
 	}
@@ -628,9 +615,10 @@ func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 	}
 	date = strings.Replace(date, ".", "", -1)
 	if isForceUpload {
+		// files.md5
 		go hs.s.CheckFileAndSendToPeer(date, CONST_FILE_Md5_FILE_NAME, isForceUpload)
 	} else {
-		// 检测文件, 并加载到下载处理队列
+		// errors.md5 检测文件, 并加载到下载处理队列
 		go hs.s.CheckFileAndSendToPeer(date, CONST_Md5_ERROR_FILE_NAME, isForceUpload)
 	}
 	result.Status = "ok"
@@ -638,7 +626,7 @@ func (hs *HttpServer) Sync(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-// [date]
+// 查询日期, files.md5 中所有符合该文件的 文件标识符 [date 日期(2020-217)]
 func (hs *HttpServer) GetMd5sForWeb(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -650,9 +638,8 @@ func (hs *HttpServer) GetMd5sForWeb(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
-	_ = r.ParseForm()
 	date := r.FormValue("date")
-	//
+	// files.md5
 	if result, err = hs.s.GetMd5sByDate(date, CONST_FILE_Md5_FILE_NAME); err != nil {
 		_ = slog.Error(err)
 		return
@@ -666,7 +653,7 @@ func (hs *HttpServer) GetMd5sForWeb(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(strings.Join(lines, ",")))
 }
 
-// [md5s]
+// 根据文件标识符查询文件, 并添加到 文件上传处理队列 等待处理 [md5s 文件标识符, 多个用逗号隔开]
 func (hs *HttpServer) ReceiveMd5s(w http.ResponseWriter, r *http.Request) {
 	var (
 		err      error
@@ -677,7 +664,6 @@ func (hs *HttpServer) ReceiveMd5s(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(GetClusterNotPermitMessage(r)))
 		return
 	}
-	_ = r.ParseForm()
 	md5str := r.FormValue("md5s")
 	md5s := strings.Split(md5str, ",")
 	// 定义功能
@@ -697,7 +683,7 @@ func (hs *HttpServer) ReceiveMd5s(w http.ResponseWriter, r *http.Request) {
 	go AppendFunc(md5s)
 }
 
-// 获取服务状态信息 [inner, echart]
+// 获取服务状态信息 [echart 操作标识 1 输出图表统计信息, inner 操作标识 1 返回纯数据]
 func (hs *HttpServer) Stat(w http.ResponseWriter, r *http.Request) {
 	var (
 		result   en.JsonResult
@@ -711,14 +697,12 @@ func (hs *HttpServer) Stat(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	_ = r.ParseForm()
-	inner := r.FormValue("inner")
-	eChart := r.FormValue("echart")
 	// 获取服务状态信息数据
 	data := hs.getStat()
 	result.Status = "ok"
 	result.Data = data
 	//
+	eChart := r.FormValue("echart")
 	if eChart == "1" {
 		dataMap = make(map[string]interface{}, 3)
 		for _, v := range data {
@@ -732,8 +716,9 @@ func (hs *HttpServer) Stat(w http.ResponseWriter, r *http.Request) {
 		result.Data = dataMap
 	}
 	//
+	inner := r.FormValue("inner")
 	if inner == "1" {
-		_, _ = w.Write([]byte(util.JsonEncodePretty(data)))
+		_, _ = w.Write([]byte(util.JsonEncodePretty(result.Data)))
 	} else {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 	}
@@ -744,10 +729,6 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 	var (
 		err      error
 		status   en.JsonResult
-		sts      map[string]interface{}
-		sumset   mapset.Set
-		ok       bool
-		v        interface{}
 		appDir   string
 		diskInfo *disk.UsageStat
 		memInfo  *mem.VirtualMemoryStat
@@ -756,7 +737,7 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 	memStat := new(runtime.MemStats)
 	runtime.ReadMemStats(memStat)
 	today := util.GetToDay()
-	sts = make(map[string]interface{})
+	sts := make(map[string]interface{})
 	// 队列状态
 	sts["Fs.QueueFromPeers"] = len(hs.s.GetQueueFromPeers())
 	sts["Fs.QueueToPeers"] = len(hs.s.GetQueueToPeers())
@@ -765,8 +746,8 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 	for _, k := range []string{CONST_FILE_Md5_FILE_NAME, CONST_Md5_ERROR_FILE_NAME, CONST_Md5_QUEUE_FILE_NAME} {
 		k2 := fmt.Sprintf("%s_%s", today, k)
 		//
-		if v, ok = hs.s.GetSumMap().GetValue(k2); ok {
-			sumset = v.(mapset.Set)
+		if v, ok := hs.s.GetSumMap().GetValue(k2); ok {
+			sumset := v.(mapset.Set)
 			if k == CONST_Md5_QUEUE_FILE_NAME {
 				sts["Fs.QueueSetSize"] = sumset.Cardinality()
 			}
@@ -799,16 +780,16 @@ func (hs *HttpServer) Status(w http.ResponseWriter, r *http.Request) {
 	//sts["Sys.MemInfo"] = memStat
 	appDir, err = filepath.Abs(".")
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 	diskInfo, err = disk.Usage(appDir)
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 	sts["Sys.DiskInfo"] = diskInfo
 	memInfo, err = mem.VirtualMemory()
 	if err != nil {
-		slog.Error(err)
+		_ = slog.Error(err)
 	}
 	sts["Sys.MemInfo"] = memInfo
 	status.Status = "ok"
@@ -831,7 +812,6 @@ func (hs *HttpServer) Repair(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result.Status = "ok"
-	_ = r.ParseForm()
 	force = r.FormValue("force")
 	if force == "1" {
 		forceRepair = true
@@ -843,7 +823,7 @@ func (hs *HttpServer) Repair(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-// 检测状态文件(stat.json)数据, 并修复 [date, inner]
+// 执行该日期统一文件状态数据, 检测状态文件(stat.json)数据, 并修复 [date, inner]
 func (hs *HttpServer) RepairStatWeb(w http.ResponseWriter, r *http.Request) {
 	var (
 		result en.JsonResult
@@ -855,7 +835,6 @@ func (hs *HttpServer) RepairStatWeb(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	_ = r.ParseForm()
 	//
 	date = r.FormValue("date")
 	inner = r.FormValue("inner")
@@ -907,7 +886,7 @@ func (hs *HttpServer) RepairFileInfo(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 }
 
-// 清理并备份数据 [date, inner]
+// 整理日志和元数据, 根据查询文件信息数据, 处理文件日志信息数据和文件元数据 [date, inner]
 func (hs *HttpServer) BackUp(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -920,7 +899,6 @@ func (hs *HttpServer) BackUp(w http.ResponseWriter, r *http.Request) {
 	}
 	//
 	result.Status = "ok"
-	_ = r.ParseForm()
 	date := r.FormValue("date")
 	inner := r.FormValue("inner")
 	if date == "" {
@@ -963,7 +941,6 @@ func (hs *HttpServer) GenGoogleCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	//
-	_ = r.ParseForm()
 	result.Status = "ok"
 	result.Message = "ok"
 	//

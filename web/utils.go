@@ -94,12 +94,15 @@ func IsPeer(r *http.Request) bool {
 	// 判断是否是本地节点
 	ip := util.GetClientIp(r)
 	realIp := os.Getenv(GO_FASTDFS_IP)
+	fmt.Printf("访问者IP => %s , 环境配置的真实IP => %s", ip, realIp)
+	fmt.Printf("访问者HOST => %s", r.Host)
 	if realIp == "" {
 		realIp = util.GetPulicIP()
 	}
-	if ip == "127.0.0.1" || ip == realIp {
+	if strings.Contains(r.Host, "localhost") || ip == "127.0.0.1" || ip == realIp {
 		return true
 	}
+	// 判断访问者是否为管理主机 IP
 	if util.Contains(ip, adminIps) {
 		return true
 	}
@@ -115,7 +118,7 @@ func IsPeer(r *http.Request) bool {
 	return flag
 }
 
-// 请求数据中, 获取文件路径
+// 请求数据中, 获取文件(下载/保存)路径(目录) [根据请求URL. 分析文件路径完整路径]
 func analyseFilePathFromRequest(w http.ResponseWriter, r *http.Request) (string, string) {
 	var (
 		err       error
@@ -123,6 +126,7 @@ func analyseFilePathFromRequest(w http.ResponseWriter, r *http.Request) (string,
 		prefix    string
 	)
 	fullPath := r.RequestURI[1:]
+	// 分组名(下载路径跟路径), 去除分组信息, 替换为本地存储目录
 	if strings.HasPrefix(r.RequestURI, "/"+group+"/") {
 		fullPath = r.RequestURI[len(group)+2 : len(r.RequestURI)]
 	}

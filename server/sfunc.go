@@ -17,11 +17,11 @@ import (
 )
 
 // HTTP文件上传处理 (HTTP文件上传处理队列)
+// [filename 文件名, path 上传路径 file 文件内容 | md5 文件唯一标识符, output 输出格式 (json , 默认text下载URL)]
 func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 	var (
 		err          error
 		ok           bool
-		md5sum       string
 		fileInfo     en.FileInfo
 		uploadFile   multipart.File
 		uploadHeader *multipart.FileHeader
@@ -30,8 +30,6 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		secret       interface{}
 	)
 
-	_ = r.ParseForm()
-	output := r.FormValue("output")
 	if enableCrossOrigin {
 		web.CrossOrigin(w, r)
 		if r.Method == http.MethodOptions {
@@ -47,25 +45,39 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.Method == http.MethodPost {
-		// POST -> 上传文件
-		md5sum = r.FormValue("md5")
+		// POST -> 上传文件 filename path scene code file | md5 output
 		fileName := r.FormValue("filename")
-		output = r.FormValue("output")
+		md5sum := r.FormValue("md5")
+		//
+		fileInfo.Md5 = md5sum
+		fileInfo.ReName = fileName
+		fileInfo.OffSet = -1
 		if readOnly {
+			// 该节点只读, 不支持上传文件
 			_, _ = w.Write([]byte("(error) readonly"))
 			return
 		}
 		if enableCustomPath {
+			// 支持非日期路径
 			fileInfo.Path = r.FormValue("path")
 			fileInfo.Path = strings.Trim(fileInfo.Path, "/")
 		}
+		//
 		scene := r.FormValue("scene")
-		code := r.FormValue("code")
 		if scene == "" {
 			//Just for Compatibility
 			scene = r.FormValue("scenes")
+			if scene == "" {
+				scene = defaultScene
+			}
 		}
+		if _, err = server.checkScene(scene); err != nil {
+			_, _ = w.Write([]byte(err.Error()))
+			return
+		}
+		fileInfo.Scene = scene
 		if enableGoogleAuth && scene != "" {
+			code := r.FormValue("code")
 			if secret, ok = server.sceneMap.GetValue(scene); ok {
 				if !server.verifyGoogleCode(secret.(string), code, int64(downloadTokenExpire/30)) {
 					server.notPermit(w, r)
@@ -74,9 +86,6 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		fileInfo.Md5 = md5sum
-		fileInfo.ReName = fileName
-		fileInfo.OffSet = -1
 		if uploadFile, uploadHeader, err = r.FormFile("file"); err != nil {
 			_ = slog.Error(err)
 			_, _ = w.Write([]byte(err.Error()))
@@ -84,9 +93,13 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		fileInfo.Peers = []string{}
 		fileInfo.TimeStamp = time.Now().Unix()
-		if scene == "" {
-			scene = defaultScene
+		if err != nil {
+			_ = slog.Error(err)
+			http.Redirect(w, r, "/", http.StatusMovedPermanently)
+			return
 		}
+		// 输出格式
+		output := r.FormValue("output")
 		if output == "" {
 			output = "text"
 		}
@@ -94,16 +107,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("output just support json or text"))
 			return
 		}
-		fileInfo.Scene = scene
-		if _, err = server.checkScene(scene); err != nil {
-			_, _ = w.Write([]byte(err.Error()))
-			return
-		}
-		if err != nil {
-			_ = slog.Error(err)
-			http.Redirect(w, r, "/", http.StatusMovedPermanently)
-			return
-		}
+		//
 		if _, err = server.processUploadFile(uploadFile, uploadHeader, &fileInfo, r); err != nil {
 			_, _ = w.Write([]byte(err.Error()))
 			return
@@ -148,6 +152,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		//
 		server.appendToFileMd5LogQueue(&fileInfo, CONST_FILE_Md5_FILE_NAME) //maybe slow
 		go server.postFileToPeer(&fileInfo)
 		if fileInfo.Size <= 0 {
@@ -167,13 +172,14 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		// GET -> fast md5
-		md5sum = r.FormValue("md5")
-		output = r.FormValue("output")
+		md5sum := r.FormValue("md5")
+		output := r.FormValue("output")
 		if md5sum == "" {
 			_, _ = w.Write([]byte("(error) if you want to upload fast md5 is require" +
 				",and if you want to upload file,you must use post method  "))
 			return
 		}
+		//
 		if v, _ := server.getFileInfoFromLevelDB(md5sum); v != nil && v.Md5 != "" {
 			fileResult = server.buildFileResult(v, r)
 		}

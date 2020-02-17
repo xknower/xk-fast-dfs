@@ -66,7 +66,7 @@ var (
 	idleTimeout        int
 )
 
-//
+// 文件下载配置
 var staticHandler http.Handler
 
 func init() {
@@ -94,6 +94,7 @@ func init() {
 	writeTimeout = conf.Global().WriteTimeout
 	idleTimeout = conf.Global().IdleTimeout
 
+	// 下载文件配置, 文件服务器
 	if supportGroupManage {
 		staticHandler = http.StripPrefix("/"+group+"/", http.FileServer(http.Dir(STORE_DIR)))
 	} else {
