@@ -390,24 +390,29 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 	fullpath = fileInfo.Path + "/" + outname
 	logKey = fmt.Sprintf("%s_%s_%s", logDate, filename, fileInfo.Md5)
 	if filename == CONST_FILE_Md5_FILE_NAME {
+		// files.md5 -> 上传文件, 保存数据和相关操作日志
 		//server.searchMap.Put(fileInfo.Md5, fileInfo.Name)
 		if ok, err = server.isExistFromLevelDB(fileInfo.Md5, server.ldb); !ok {
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_COUNT_KEY, 1)
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_TOTAL_SIZE_KEY, fileInfo.Size)
 			server.saveStat()
 		}
+		// 保存日志信息
 		if _, err = server.saveFileInfoToLevelDB(logKey, fileInfo, server.logDB); err != nil {
 			_ = slog.Error(err)
 		}
+		// 保存数据信息 (MD5为KEY)
 		if _, err := server.saveFileInfoToLevelDB(fileInfo.Md5, fileInfo, server.ldb); err != nil {
 			_ = slog.Error("saveToLevelDB", err, fileInfo)
 		}
+		// 保存数据信息 (路径为KEY)
 		if _, err = server.saveFileInfoToLevelDB(util.MD5(fullpath), fileInfo, server.ldb); err != nil {
 			_ = slog.Error("saveToLevelDB", err, fileInfo)
 		}
 		return
 	}
 	if filename == CONST_REMOME_Md5_FILE_NAME {
+		// removes.md5 -> 文件删除, 保存删除日志
 		//server.searchMap.Remove(fileInfo.Md5)
 		if ok, err = server.isExistFromLevelDB(fileInfo.Md5, server.ldb); ok {
 			server.statMap.AddCountInt64(logDate+"_"+CONST_STAT_FILE_COUNT_KEY, -1)
@@ -427,6 +432,8 @@ func (server *Service) saveFileMd5Log(fileInfo *en.FileInfo, filename string) {
 		_ = server.removeKeyFromLevelDB(logKey, server.logDB)
 		return
 	}
+
+	// 下载队列和错误队列 -> 保存操作日志 (不涉及数据的处理和状态变化)
 	_, _ = server.saveFileInfoToLevelDB(logKey, fileInfo, server.logDB)
 }
 

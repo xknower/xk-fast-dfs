@@ -37,11 +37,13 @@ var (
 )
 
 const (
-	CONST_SMALL_FILE_SIZE          = int64(1024 * 1024)
-	CONST_FILE_Md5_FILE_NAME       = "files.md5"   // 文件信息操作标识 保存文件处理
-	CONST_Md5_ERROR_FILE_NAME      = "errors.md5"  // 文件信息操作标识 错误文件处理
-	CONST_Md5_QUEUE_FILE_NAME      = "queue.md5"   // 文件信息操作标识 队列文件处理
-	CONST_REMOME_Md5_FILE_NAME     = "removes.md5" // 文件信息操作标识 删除文件处理
+	CONST_SMALL_FILE_SIZE = int64(1024 * 1024) // 小文件定义 1M
+
+	CONST_FILE_Md5_FILE_NAME   = "files.md5"   // 文件信息操作标识 保存文件处理
+	CONST_Md5_ERROR_FILE_NAME  = "errors.md5"  // 文件信息操作标识 错误文件处理
+	CONST_Md5_QUEUE_FILE_NAME  = "queue.md5"   // 文件信息操作标识 队列文件处理 , 下载队列
+	CONST_REMOME_Md5_FILE_NAME = "removes.md5" // 文件信息操作标识 删除文件处理
+	//
 	CONST_STAT_FILE_TOTAL_SIZE_KEY = "totalSize"
 	CONST_STAT_FILE_COUNT_KEY      = "fileCount"
 	CONST_BIG_UPLOAD_PATH_SUFFIX   = "/big/upload/"

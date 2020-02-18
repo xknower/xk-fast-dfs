@@ -40,9 +40,6 @@ func (server *Service) analyseFilePathByInfo(fileInfo *en.FileInfo, withDocker b
 
 // 通过文件信息, 构建文件信息结果数据
 func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileUploadResult {
-	var (
-		domain string
-	)
 	host := strings.Replace(host, "http://", "", -1)
 	if r != nil {
 		host = r.Host
@@ -54,6 +51,7 @@ func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 			downloadDomain = fmt.Sprintf("http://%s", downloadDomain)
 		}
 	}
+	var domain string
 	if downloadDomain != "" {
 		domain = downloadDomain
 	} else {
@@ -85,7 +83,6 @@ func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 	fileResult.Scene = fileInfo.Scene
 	fileResult.Size = fileInfo.Size
 	fileResult.ModTime = fileInfo.TimeStamp
-	// Just for Compatibility
 	fileResult.Src = fileResult.Path
 	fileResult.Scenes = fileInfo.Scene
 	return fileResult

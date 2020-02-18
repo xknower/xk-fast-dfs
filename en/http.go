@@ -35,26 +35,25 @@ type WrapReqResp struct {
 
 // 文件上传成功, 结果返回文件实体结构定义
 type FileUploadResult struct {
-	Url     string `json:"url"`
-	Md5     string `json:"md5"`
-	Path    string `json:"path"`
-	Domain  string `json:"domain"`
-	Scene   string `json:"scene"`
-	Size    int64  `json:"size"`
-	ModTime int64  `json:"mtime"`
-	//Just for Compatibility
+	Url     string `json:"url"`    // 下载地址
+	Md5     string `json:"md5"`    // 文件标识
+	Path    string `json:"path"`   // 文件路径 (下载路径)
+	Src     string `json:"src"`    // 文件路径 (存储路径)
+	Domain  string `json:"domain"` // 下载域, 配置的下载地址或者获取本节点地址
+	Scene   string `json:"scene"`  // 文件场景
+	Size    int64  `json:"size"`   // 文件大小
+	ModTime int64  `json:"mtime"`  // 文件时间戳
 	Scenes  string `json:"scenes"`
 	Retmsg  string `json:"retmsg"`
 	Retcode int    `json:"retcode"`
-	Src     string `json:"src"`
 }
 
 // 查询目录文件信息, 结果返回文件实体结构定义
 type FileInfoResult struct {
-	Name    string `json:"name"`
-	Md5     string `json:"md5"`
-	Path    string `json:"path"`
-	Size    int64  `json:"size"`
-	ModTime int64  `json:"mtime"`
-	IsDir   bool   `json:"is_dir"`
+	Name    string `json:"name"`   // 文件名
+	Md5     string `json:"md5"`    // 文件标识
+	Path    string `json:"path"`   // 文件路径
+	Size    int64  `json:"size"`   // 文件大小
+	ModTime int64  `json:"mtime"`  // 时间戳
+	IsDir   bool   `json:"is_dir"` // 是否为目录
 }
