@@ -1,3 +1,4 @@
+// 服务组件初始化启动相关实现
 package server
 
 import (
@@ -131,16 +132,16 @@ func (server *Service) initComponent(isReload bool) {
 // 启动相关服务组件
 // ---------- ---------- ----------
 // 00 开始服务 -> 检测文件并加载到处理队列 (定时, 自动检测系统状态 (文件和结点状态))
-// 01 开启服务 -> 定期清理及备份数据服务
+// 01 开启服务 -> 定义清理数据与处理文件元数据和日志信息
 // 02 开启服务 -> 检测集群状态服务
-// 03 开启服务
-// 04 开启服务
-// 05 开启服务 -> 处理日志队列服务
-// 06 开启服务 -> 处理文件下载队列服务
-// 07 开启服务 -> 处理文件上传队列服务
+// 03 开启服务 -> 检测处理队列文件信息, 并加如处理队列等待处理 (重启)
+// 04 开启服务 -> 开启多个 syncWorker, 处理文件上传处理队列
+// 05 开启服务 -> 开启处理, 文件日志处理队列
+// 06 开启服务 -> 开启多个 syncWorker, 处理文件下载处理队列
+// 07 开启服务 -> 开启多个 uploadWorker, 处理HTTP文件上传处理队列
 // 08 开启服务 -> 清除过期(下载)文件服务
-// 09 开启服务 -> 监控文件变更服务
-// 10 开启服务
+// 09 开启服务 -> 监控文件变更并处理
+// 10 开启服务 -> 加载搜索字典文件
 // 11 开启服务 -> 数据迁移服务
 // 12 开启服务 -> 数据修复更新服务
 // 13 开启服务 -> 定时强制释放内存
@@ -213,7 +214,9 @@ func (server *Service) formatStatInfo() {
 		data []byte
 		stat map[string]interface{}
 	)
+	// stat.json
 	if util.FileExists(CONST_STAT_FILE_NAME) {
+		// 读取状态数据并缓存 -> statMap
 		if data, err = util.ReadBinFile(CONST_STAT_FILE_NAME); err != nil {
 			_ = slog.Error(err)
 		} else {
@@ -237,11 +240,12 @@ func (server *Service) formatStatInfo() {
 			}
 		}
 	} else {
+		// 状态文件不存在, 从数据库获取状态信息, 缓存并写入文件
 		server.repairStatByDate(util.GetToDay())
 	}
 }
 
-//
+// 查询文件状态数据, 按照日期统计的文件数量和总大小 (文件日志数据库)
 func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
 	var (
 		err       error
@@ -258,8 +262,9 @@ func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
 			_ = slog.Error(string(buffer))
 		}
 	}()
-	keyPrefix := "%s_%s_"
-	keyPrefix = fmt.Sprintf(keyPrefix, date, CONST_FILE_Md5_FILE_NAME)
+	// files.md5
+	keyPrefix := fmt.Sprintf("%s_%s_", date, CONST_FILE_Md5_FILE_NAME)
+	// 查询每日文件状态数据, 按照日期统计的文件数量和总大小 (文件日志数据库)
 	iter := server.logDB.NewIterator(dbutil.BytesPrefix([]byte(keyPrefix)), nil)
 	defer iter.Release()
 	for iter.Next() {
@@ -269,16 +274,20 @@ func (server *Service) repairStatByDate(date string) en.StatDateFileInfo {
 		fileCount = fileCount + 1
 		fileSize = fileSize + fileInfo.Size
 	}
-	server.statMap.Put(date+"_"+CONST_STAT_FILE_COUNT_KEY, fileCount)
-	server.statMap.Put(date+"_"+CONST_STAT_FILE_TOTAL_SIZE_KEY, fileSize)
-	server.saveStat()
 	stat.Date = date
 	stat.FileCount = fileCount
 	stat.TotalSize = fileSize
+
+	// fileCount, 缓存文件数量
+	server.statMap.Put(date+"_"+CONST_STAT_FILE_COUNT_KEY, fileCount)
+	// totalSize, 缓存文件总大小
+	server.statMap.Put(date+"_"+CONST_STAT_FILE_TOTAL_SIZE_KEY, fileSize)
+	// 保存, 将 缓存的 statMap 状态数据保存
+	server.saveStat()
 	return stat
 }
 
-// 保存状态 -> stat.json
+// 缓存的 statMap 状态数据保存 -> stat.json
 func (server *Service) saveStat() {
 	// 定义功能
 	SaveStatFunc := func() {
@@ -315,32 +324,37 @@ func (server *Service) saveStat() {
 func (server *Service) initTus() {
 	var (
 		err     error
-		fileLog *os.File
+		fileLog *os.File // 日志文件
 	)
-	bigDir := CONST_BIG_UPLOAD_PATH_SUFFIX
-	if supportGroupManage {
-		bigDir = fmt.Sprintf("/%s%s", group, CONST_BIG_UPLOAD_PATH_SUFFIX)
-	}
-	//
-	bigStoreDir := STORE_DIR + "/_big/" + peerId
-	_ = os.MkdirAll(bigStoreDir, 0775)
-	_ = os.MkdirAll(LOG_DIR, 0775)
-	store := filestore.FileStore{
-		Path: bigStoreDir,
-	}
-	//
-	if fileLog, err = os.OpenFile(LOG_DIR+"/tusd.log", os.O_CREATE|os.O_RDWR, 0666); err != nil {
+	// log/
+	logDir := LOG_DIR
+	_ = os.MkdirAll(logDir, 0775)
+	// logDir/tusd.log
+	if fileLog, err = os.OpenFile(logDir+"/tusd.log", os.O_CREATE|os.O_RDWR, 0666); err != nil {
 		_ = slog.Error(err)
 		panic("initTus")
 	}
+
+	// /big/upload/
+	bigDir := CONST_BIG_UPLOAD_PATH_SUFFIX
+	if supportGroupManage {
+		bigDir = fmt.Sprintf("/%s%s", group, bigDir)
+	}
+	// /_big/
+	bigStoreDir := STORE_DIR + "/_big/" + peerId
+	_ = os.MkdirAll(bigStoreDir, 0775)
+	store := filestore.FileStore{
+		Path: bigStoreDir,
+	}
+
 	go func() {
 		for {
+			// 检测文件日志文件(500M)大小, 超出时创建新日志文件
 			if fi, err := fileLog.Stat(); err != nil {
-				slog.Error(err)
+				_ = slog.Error(err)
 			} else {
 				if fi.Size() > 1024*1024*500 {
-					//500M
-					_, _ = util.CopyFile(LOG_DIR+"/tusd.log", LOG_DIR+"/tusd.log.2")
+					_, _ = util.CopyFile(logDir+"/tusd.log", logDir+"/tusd.log.2")
 					_, _ = fileLog.Seek(0, 0)
 					_ = fileLog.Truncate(0)
 					_, _ = fileLog.Seek(0, 2)
@@ -537,69 +551,6 @@ func (server *Service) initTus() {
 
 	// Web Handler Interface -> /big/upload/
 	http.Handle(bigDir, http.StripPrefix(bigDir, handler))
-}
-
-// 获取文件路径, 文件信息中解析
-func (server *Service) analyseFilePathByInfo(fileInfo *en.FileInfo, withDocker bool) string {
-	fn := fileInfo.Name
-	if fileInfo.ReName != "" {
-		fn = fileInfo.ReName
-	}
-	if withDocker {
-		return DOCKER_DIR + fileInfo.Path + "/" + fn
-	}
-	return fileInfo.Path + "/" + fn
-}
-
-// 通过文件信息, 构建文件信息结果数据
-func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileResult {
-	var (
-		fileResult en.FileResult
-		domain     string
-	)
-	host := strings.Replace(host, "http://", "", -1)
-	if r != nil {
-		host = r.Host
-	}
-	if !strings.HasPrefix(downloadDomain, "http") {
-		if downloadDomain == "" {
-			downloadDomain = fmt.Sprintf("http://%s", host)
-		} else {
-			downloadDomain = fmt.Sprintf("http://%s", downloadDomain)
-		}
-	}
-	if downloadDomain != "" {
-		domain = downloadDomain
-	} else {
-		domain = fmt.Sprintf("http://%s", host)
-	}
-	//
-	outName := fileInfo.Name
-	if fileInfo.ReName != "" {
-		outName = fileInfo.ReName
-	}
-	//
-	path := strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
-	if supportGroupManage {
-		path = group + "/" + path + "/" + outName
-	} else {
-		path = path + "/" + outName
-	}
-	downloadUrl := fmt.Sprintf("http://%s/%s", host, path)
-	if downloadDomain != "" {
-		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, path)
-	}
-	fileResult.Url = downloadUrl
-	fileResult.Md5 = fileInfo.Md5
-	fileResult.Path = "/" + path
-	fileResult.Domain = domain
-	fileResult.Scene = fileInfo.Scene
-	fileResult.Size = fileInfo.Size
-	fileResult.ModTime = fileInfo.TimeStamp
-	// Just for Compatibility
-	fileResult.Src = fileResult.Path
-	fileResult.Scenes = fileInfo.Scene
-	return fileResult
 }
 
 // 配置获取设置重启等操作 [cfg, action]

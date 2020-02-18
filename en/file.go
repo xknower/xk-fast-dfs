@@ -38,6 +38,7 @@ type FileResult struct {
 	Src     string `json:"src"`
 }
 
+// 状态文件内容结构定义 [统计(按日期)文件数量和大小]
 type StatDateFileInfo struct {
 	Date      string `json:"date"`
 	TotalSize int64  `json:"totalSize"`

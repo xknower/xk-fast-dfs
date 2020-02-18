@@ -2,8 +2,11 @@ package server
 
 import (
 	"../conf"
+	"github.com/astaxie/beego/httplib"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/sjqzhang/goutil"
+	"net/http"
+	"time"
 )
 
 const (
@@ -123,4 +126,21 @@ func init() {
 	writeTimeout = conf.Global().WriteTimeout
 	refreshInterval = conf.Global().RefreshInterval
 	addr = conf.Global().Addr
+
+	// 初始化 BeegoHTTP
+	defaultTransport := &http.Transport{
+		DisableKeepAlives:   true,
+		Dial:                httplib.TimeoutDialer(time.Second*15, time.Second*300),
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+	}
+	settings := httplib.BeegoHTTPSettings{
+		UserAgent:        Go_FastDFS,
+		ConnectTimeout:   15 * time.Second,
+		ReadWriteTimeout: 15 * time.Second,
+		Gzip:             true,
+		DumpBody:         true,
+		Transport:        defaultTransport,
+	}
+	httplib.SetDefaultSetting(settings)
 }

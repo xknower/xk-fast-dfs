@@ -3,15 +3,12 @@ package server
 import (
 	"../en"
 	"fmt"
-	"github.com/astaxie/beego/httplib"
 	_ "github.com/eventials/go-tus"
 	"github.com/sjqzhang/goutil"
 	slog "github.com/sjqzhang/seelog"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	"net/http"
 	_ "net/http/pprof"
-	"time"
 )
 
 // 定义服务结构
@@ -49,40 +46,24 @@ func NewService() (server *Service, err error) {
 		sumMap:         goutil.NewCommonMap(365 * 3),
 	}
 
-	defaultTransport := &http.Transport{
-		DisableKeepAlives:   true,
-		Dial:                httplib.TimeoutDialer(time.Second*15, time.Second*300),
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-	}
-	settings := httplib.BeegoHTTPSettings{
-		UserAgent:        Go_FastDFS,
-		ConnectTimeout:   15 * time.Second,
-		ReadWriteTimeout: 15 * time.Second,
-		Gzip:             true,
-		DumpBody:         true,
-		Transport:        defaultTransport,
-	}
-
-	httplib.SetDefaultSetting(settings)
 	server.statMap.Put(CONST_STAT_FILE_COUNT_KEY, int64(0))
 	server.statMap.Put(CONST_STAT_FILE_TOTAL_SIZE_KEY, int64(0))
 	server.statMap.Put(util.GetToDay()+"_"+CONST_STAT_FILE_COUNT_KEY, int64(0))
 	server.statMap.Put(util.GetToDay()+"_"+CONST_STAT_FILE_TOTAL_SIZE_KEY, int64(0))
 	server.curDate = util.GetToDay()
+
+	// 数据库
 	opts := &opt.Options{
 		CompactionTableSize: 1024 * 1024 * 20,
 		WriteBuffer:         1024 * 1024 * 20,
 	}
-
-	//
+	// /data.db
 	if server.ldb, err = leveldb.OpenFile(CONST_LEVELDB_FILE_NAME, opts); err != nil {
 		fmt.Println(fmt.Sprintf("open db file %s fail,maybe has opening", CONST_LEVELDB_FILE_NAME))
 		_ = slog.Error(err)
 		panic(err)
 	}
-
-	//
+	// log.db
 	server.logDB, err = leveldb.OpenFile(CONST_LOG_LEVELDB_FILE_NAME, opts)
 	if err != nil {
 		fmt.Println(fmt.Sprintf("open db file %s fail,maybe has opening", CONST_LOG_LEVELDB_FILE_NAME))

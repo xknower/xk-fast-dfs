@@ -25,6 +25,69 @@ func (server *Service) analyseRequestURI(action string) string {
 	return uri
 }
 
+// 获取文件路径, 文件信息中解析
+func (server *Service) analyseFilePathByInfo(fileInfo *en.FileInfo, withDocker bool) string {
+	fn := fileInfo.Name
+	if fileInfo.ReName != "" {
+		fn = fileInfo.ReName
+	}
+	if withDocker {
+		return DOCKER_DIR + fileInfo.Path + "/" + fn
+	}
+	return fileInfo.Path + "/" + fn
+}
+
+// 通过文件信息, 构建文件信息结果数据
+func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileResult {
+	var (
+		fileResult en.FileResult
+		domain     string
+	)
+	host := strings.Replace(host, "http://", "", -1)
+	if r != nil {
+		host = r.Host
+	}
+	if !strings.HasPrefix(downloadDomain, "http") {
+		if downloadDomain == "" {
+			downloadDomain = fmt.Sprintf("http://%s", host)
+		} else {
+			downloadDomain = fmt.Sprintf("http://%s", downloadDomain)
+		}
+	}
+	if downloadDomain != "" {
+		domain = downloadDomain
+	} else {
+		domain = fmt.Sprintf("http://%s", host)
+	}
+	//
+	outName := fileInfo.Name
+	if fileInfo.ReName != "" {
+		outName = fileInfo.ReName
+	}
+	//
+	p := strings.Replace(fileInfo.Path, STORE_DIR_NAME+"/", "", 1)
+	if supportGroupManage {
+		p = group + "/" + p + "/" + outName
+	} else {
+		p = p + "/" + outName
+	}
+	downloadUrl := fmt.Sprintf("http://%s/%s", host, p)
+	if downloadDomain != "" {
+		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, p)
+	}
+	fileResult.Url = downloadUrl
+	fileResult.Md5 = fileInfo.Md5
+	fileResult.Path = "/" + p
+	fileResult.Domain = domain
+	fileResult.Scene = fileInfo.Scene
+	fileResult.Size = fileInfo.Size
+	fileResult.ModTime = fileInfo.TimeStamp
+	// Just for Compatibility
+	fileResult.Src = fileResult.Path
+	fileResult.Scenes = fileInfo.Scene
+	return fileResult
+}
+
 // 发送邮件
 func (server *Service) sendToMail(to, subject, body, mailType string) error {
 	host := mail.Host
