@@ -1,3 +1,4 @@
+// Web 实体定义
 package web
 
 import (

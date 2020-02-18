@@ -1,3 +1,4 @@
+// 配置参数初始化
 package conf
 
 import (

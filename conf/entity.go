@@ -1,3 +1,4 @@
+// 配置参数结构定义
 package conf
 
 import (

@@ -1,3 +1,4 @@
+// 服务端, 实体结构定义
 package server
 
 import (

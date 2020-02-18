@@ -1,3 +1,4 @@
+// 服务端, 组件服务实现
 package server
 
 import (

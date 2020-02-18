@@ -1,3 +1,4 @@
+// HTTP Handler 定义及实现
 package web
 
 import (
@@ -342,11 +343,11 @@ func (hs *HttpServer) GetFileInfo(w http.ResponseWriter, r *http.Request) {
 // 列出目录下文件及目录信息 [dir 显示目录, 为空显示根目录]
 func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
 	var (
-		err         error
-		result      en.JsonResult
-		filesInfo   []os.FileInfo
-		filesResult []en.FileInfoResult
-		tmpDir      string
+		err       error
+		result    en.JsonResult
+		filesInfo []os.FileInfo
+
+		tmpDir string
 	)
 	if !IsPeer(r) {
 		result.Message = GetClusterNotPermitMessage(r)
@@ -370,7 +371,9 @@ func (hs *HttpServer) ListDir(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(util.JsonEncodePretty(result)))
 		return
 	}
-	//
+
+	// 返回查询文件
+	var filesResult []en.FileInfoResult
 	for _, f := range filesInfo {
 		fi := en.FileInfoResult{
 			Name:    f.Name(),

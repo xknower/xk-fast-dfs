@@ -1,3 +1,4 @@
+// 公共方法实现
 package server
 
 import (
@@ -38,10 +39,9 @@ func (server *Service) analyseFilePathByInfo(fileInfo *en.FileInfo, withDocker b
 }
 
 // 通过文件信息, 构建文件信息结果数据
-func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileResult {
+func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) en.FileUploadResult {
 	var (
-		fileResult en.FileResult
-		domain     string
+		domain string
 	)
 	host := strings.Replace(host, "http://", "", -1)
 	if r != nil {
@@ -75,6 +75,9 @@ func (server *Service) buildFileResult(fileInfo *en.FileInfo, r *http.Request) e
 	if downloadDomain != "" {
 		downloadUrl = fmt.Sprintf("%s/%s", downloadDomain, p)
 	}
+
+	// 返回构建的文件信息
+	var fileResult en.FileUploadResult
 	fileResult.Url = downloadUrl
 	fileResult.Md5 = fileInfo.Md5
 	fileResult.Path = "/" + p

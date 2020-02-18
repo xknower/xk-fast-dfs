@@ -25,7 +25,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 		fileInfo     en.FileInfo
 		uploadFile   multipart.File
 		uploadHeader *multipart.FileHeader
-		fileResult   en.FileResult
+		fileResult   en.FileUploadResult
 		data         []byte
 		secret       interface{}
 	)
@@ -112,6 +112,7 @@ func (server *Service) upload(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
+
 		if enableDistinctFile {
 			// 文件去重
 			if v, _ := server.getFileInfoFromLevelDB(fileInfo.Md5); v != nil && v.Md5 != "" {

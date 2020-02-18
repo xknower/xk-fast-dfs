@@ -1,3 +1,4 @@
+// 服务端接口定义
 package en
 
 import (

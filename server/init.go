@@ -1,3 +1,4 @@
+// 服务端参数初始化
 package server
 
 import (

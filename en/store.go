@@ -1,3 +1,4 @@
+// 存储对象
 package en
 
 import (

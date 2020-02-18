@@ -1,3 +1,4 @@
+// 公共方法实现
 package web
 
 import (

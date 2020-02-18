@@ -1,3 +1,4 @@
+// HTTP 初始化
 package web
 
 import (
