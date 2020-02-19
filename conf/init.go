@@ -46,14 +46,13 @@ const (
 	//
 	CONST_STAT_FILE_TOTAL_SIZE_KEY = "totalSize"
 	CONST_STAT_FILE_COUNT_KEY      = "fileCount"
-	CONST_BIG_UPLOAD_PATH_SUFFIX   = "/big/upload/"
-	CONST_MESSAGE_CLUSTER_IP       = "Can only be called by the cluster ip or 127.0.0.1 or admin_ips(cfg.json),current ip:%s"
-	GO_FASTDFS_IP                  = "GO_FASTDFS_IP"
-	Go_FastDFS                     = "Go-FastDFS"
-)
 
-//
-const GO_FASTDFS_DIR = "GO_FASTDFS_DIR"
+	CONST_BIG_UPLOAD_PATH_SUFFIX = "/big/upload/"
+
+	GO_FASTDFS_DIR = "GO_FASTDFS_DIR"
+	GO_FASTDFS_IP  = "GO_FASTDFS_IP"
+	Go_FastDFS     = "Go-FastDFS"
+)
 
 const (
 	STORE_DIR_NAME  = "files"  // 文件存储目录

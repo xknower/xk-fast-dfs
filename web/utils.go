@@ -86,7 +86,7 @@ func GetClusterNotPermitMessage(r *http.Request) string {
 	var (
 		message string
 	)
-	message = fmt.Sprintf(CONST_MESSAGE_CLUSTER_IP, util.GetClientIp(r))
+	message = fmt.Sprintf("Can only be called by the cluster ip or 127.0.0.1 or admin_ips(cfg.json),current ip:%s", util.GetClientIp(r))
 	return message
 }
 
