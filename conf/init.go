@@ -135,7 +135,7 @@ func init() {
 	if e1 == nil && e2 == nil && appDir != curDir {
 		msg := fmt.Sprintf("please change directory to '%s' start fileserver\n", appDir)
 		msg = msg + fmt.Sprintf("请切换到 '%s' 目录启动 fileserver ", appDir)
-		_ = Log.Warn(msg)
+		_ = slog.Warn(msg)
 		fmt.Println(msg)
 		os.Exit(1)
 	}
@@ -181,9 +181,9 @@ func init() {
 	//
 	if _logger, err := slog.LoggerFromConfigAsBytes([]byte(LogAccessConfigStr)); err == nil {
 		Log = _logger
-		Log.Info("succes init log access")
+		slog.Info("succes init log access")
 	} else {
-		_ = Log.Error(err.Error())
+		_ = slog.Error(err.Error())
 	}
 
 	// 初始化 peer 并输出默认配置文件
@@ -208,5 +208,5 @@ func init() {
 	if Global().PeerId == "" {
 		Global().PeerId = peerId
 	}
-	Log.Info(Global())
+	slog.Info(Global())
 }

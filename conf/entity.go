@@ -3,6 +3,7 @@ package conf
 
 import (
 	"fmt"
+	slog "github.com/sjqzhang/seelog"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -121,7 +122,7 @@ func ParseConfig(filePath string) {
 	}
 
 	//
-	Log.Info(c)
+	slog.Info(c)
 	atomic.StorePointer(&ptr, unsafe.Pointer(&c))
-	Log.Info("config parse success")
+	slog.Info("config parse success")
 }

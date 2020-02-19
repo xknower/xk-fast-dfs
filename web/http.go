@@ -30,7 +30,7 @@ func (hh *HttpHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
 			code,
 			req.RequestURI,
 		)
-		slog.Info(logStr)
+		Log.Info(logStr)
 	}(time.Now())
 	defer func() {
 		if err := recover(); err != nil {

@@ -5,11 +5,15 @@ import (
 	"../conf"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/sjqzhang/goutil"
+	slog "github.com/sjqzhang/seelog"
 	"net/http"
 )
 
 // JSON 解析
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+//
+var Log slog.LoggerInterface
 
 //
 var util = &goutil.Common{}
@@ -97,6 +101,8 @@ func init() {
 	readHeaderTimeout = conf.Global().ReadHeaderTimeout
 	writeTimeout = conf.Global().WriteTimeout
 	idleTimeout = conf.Global().IdleTimeout
+
+	Log = conf.Log
 
 	// 下载文件配置, 文件服务器
 	if supportGroupManage {
